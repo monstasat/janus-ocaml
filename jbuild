@@ -1,9 +1,0 @@
-(jbuild_version 1)
-
-(library
- ((name        janus)
-  (public_name janus)
-  (wrapped false)
-  (synopsis "jsoo wrapper for janus webrtc lib")
-  (libraries (lwt lwt_react js_of_ocaml))
-  (preprocess (pps (js_of_ocaml-ppx)))))
