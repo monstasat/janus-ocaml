@@ -1,4 +1,4 @@
-let (>|=) x f = Js.Optdef.map x f
+let ( >|= ) x f = Js.Optdef.map x f
 let int_of_number x = int_of_float @@ Js.float_of_number x
 let wrap_js_optdef x f = Js.Optdef.option x >|= f |> Js.Unsafe.inject
 
@@ -10,27 +10,27 @@ let parse_ok_response ok =
 let opt_map f = function
   | Some x -> Some (f x)
   | None   -> None
-  
+
 module Mp_base = struct
 
   type t =
-    { id          : int option
-    ; name        : string option
+    { id : int option
+    ; name : string option
     ; description : string option
-    ; is_private  : bool option
-    ; audio       : bool option
-    ; video       : bool option
-    ; data        : bool option
+    ; is_private : bool
+    ; audio : bool
+    ; video : bool
+    ; data : bool
     }
 
   let to_js_obj x =
-    let id          = ("id", wrap_js_optdef x.id (fun x -> x)) in
-    let name        = ("name", wrap_js_optdef x.name Js.string) in
+    let id = ("id", wrap_js_optdef x.id (fun x -> x)) in
+    let name = ("name", wrap_js_optdef x.name Js.string) in
     let description = ("description", wrap_js_optdef x.description Js.string) in
-    let is_private  = ("is_private", wrap_js_optdef x.is_private Js.bool) in
-    let audio       = ("audio", wrap_js_optdef x.audio Js.bool) in
-    let video       = ("video", wrap_js_optdef x.video Js.bool) in
-    let data        = ("data", wrap_js_optdef x.data Js.bool) in
+    let is_private = ("is_private", Js.bool x.is_private |> Js.Unsafe.inject) in
+    let audio = ("audio", Js.bool x.audio |> Js.Unsafe.inject) in
+    let video = ("video", Js.bool x.video |> Js.Unsafe.inject) in
+    let data = ("data", Js.bool x.data |> Js.Unsafe.inject) in
     [| id; name; description; is_private; audio; video; data |]
 
 end
@@ -39,61 +39,63 @@ end
 module Mp_rtp = struct
 
   type audio =
-    { audiomcast  : string option
-    ; audioport   : int
-    ; audiopt     : int
+    { audiomcast : string option
+    ; audioport : int
+    ; audiopt : int
     ; audiortpmap : string
-    ; audiofmtp   : string option
-    ; audioiface  : string option
+    ; audiofmtp : string option
+    ; audioiface : string option
     }
 
   type video =
-    { videomcast    : string option
-    ; videoport     : int
-    ; videopt       : int
-    ; videortpmap   : string
-    ; videofmtp     : string option
-    ; videoiface    : string option
+    { videomcast : string option
+    ; videoport : int
+    ; videopt : int
+    ; videortpmap : string
+    ; videofmtp : string option
+    ; videoiface : string option
     ; videobufferkf : bool option
     }
 
   type data =
-    { dataport      : int
+    { dataport : int
     ; databuffermsg : bool option
-    ; dataiface     : string option
+    ; dataiface : string option
     }
 
-  type t = { base  : Mp_base.t option
-           ; audio : audio option
-           ; video : video option
-           ; data  : data option
-           }
+  type t =
+    { base : Mp_base.t
+    ; audio : audio option
+    ; video : video option
+    ; data : data option
+    }
 
   let to_js_obj x =
-    let base  = match x.base with
-      | Some x -> Mp_base.to_js_obj x
-      | None   -> [| |] in
+    let base  = Mp_base.to_js_obj x.base in
     let audio = match x.audio with
-      | Some aud -> [| ("audiomcast", wrap_js_optdef aud.audiomcast Js.string);
-                       ("audioport", Js.Unsafe.inject aud.audioport);
-                       ("audiopt", Js.Unsafe.inject @@ (fun x -> x) aud.audiopt);
-                       ("audiortpmap", Js.Unsafe.inject @@ Js.string aud.audiortpmap);
-                       ("audiofmtp", wrap_js_optdef aud.audiofmtp Js.string);
-                       ("audioiface", wrap_js_optdef aud.audioiface Js.string) |]
+      | Some aud ->
+         [| ("audiomcast", wrap_js_optdef aud.audiomcast Js.string)
+          ; ("audioport", Js.Unsafe.inject aud.audioport)
+          ; ("audiopt", Js.Unsafe.inject @@ (fun x -> x) aud.audiopt)
+          ; ("audiortpmap", Js.Unsafe.inject @@ Js.string aud.audiortpmap)
+          ; ("audiofmtp", wrap_js_optdef aud.audiofmtp Js.string)
+          ; ("audioiface", wrap_js_optdef aud.audioiface Js.string) |]
       | None -> [| |] in
     let video = match x.video with
-      | Some vid -> [| ("videomcast", wrap_js_optdef vid.videomcast Js.string);
-                       ("videoport", Js.Unsafe.inject vid.videoport);
-                       ("videopt", Js.Unsafe.inject @@ (fun x -> x) vid.videopt);
-                       ("videortpmap", Js.Unsafe.inject @@ Js.string vid.videortpmap);
-                       ("videofmtp", wrap_js_optdef vid.videofmtp Js.string);
-                       ("videoiface", wrap_js_optdef vid.videoiface Js.string);
-                       ("videobufferkf", wrap_js_optdef vid.videobufferkf Js.bool) |]
+      | Some vid ->
+         [| ("videomcast", wrap_js_optdef vid.videomcast Js.string)
+          ; ("videoport", Js.Unsafe.inject vid.videoport)
+          ; ("videopt", Js.Unsafe.inject @@ (fun x -> x) vid.videopt)
+          ; ("videortpmap", Js.Unsafe.inject @@ Js.string vid.videortpmap)
+          ; ("videofmtp", wrap_js_optdef vid.videofmtp Js.string)
+          ; ("videoiface", wrap_js_optdef vid.videoiface Js.string)
+          ; ("videobufferkf", wrap_js_optdef vid.videobufferkf Js.bool) |]
       | None -> [| |] in
     let data = match x.data with
-      | Some data -> [| ("dataport", Js.Unsafe.inject data.dataport);
-                        ("databuffermsg", wrap_js_optdef data.databuffermsg Js.bool);
-                        ("dataiface", wrap_js_optdef data.dataiface Js.string) |]
+      | Some data ->
+         [| ("dataport", Js.Unsafe.inject data.dataport)
+          ; ("databuffermsg", wrap_js_optdef data.databuffermsg Js.bool)
+          ; ("dataiface", wrap_js_optdef data.dataiface Js.string) |]
       | None -> [| |] in
     Array.concat [ base; audio; video; data ]
 
@@ -129,8 +131,8 @@ end
 module Mp_rtsp = struct
 
   type t =
-    { base      : Mp_base.t option
-    ; url       : string option
+    { base : Mp_base.t option
+    ; url : string option
     ; rtsp_user : string option
     ; rtsp_pwd  : string option
     ; rtspiface : string option
@@ -140,10 +142,11 @@ module Mp_rtsp = struct
     let base = match x.base with
       | Some x -> Mp_base.to_js_obj x
       | None   -> [| |] in
-    let specific = [| ("url", wrap_js_optdef x.url Js.string);
-                      ("rtsp_user", wrap_js_optdef x.rtsp_user Js.string);
-                      ("rtsp_pwd", wrap_js_optdef x.rtsp_pwd Js.string);
-                      ("rtspiface", wrap_js_optdef x.rtspiface Js.string) |] in
+    let specific =
+      [| ("url", wrap_js_optdef x.url Js.string)
+       ; ("rtsp_user", wrap_js_optdef x.rtsp_user Js.string)
+       ; ("rtsp_pwd", wrap_js_optdef x.rtsp_pwd Js.string)
+       ; ("rtspiface", wrap_js_optdef x.rtspiface Js.string) |] in
     Array.append base specific
 
 end
@@ -152,21 +155,22 @@ module Mp_list = struct
 
   type t = unit
 
-  type r = { id           : int option
-           ; type_        : string option
-           ; description  : string option
-           ; video_age_ms : int option
-           ; audio_age_ms : int option
-           }
+  type r =
+    { id : int option
+    ; type_ : string option
+    ; description : string option
+    ; video_age_ms : int option
+    ; audio_age_ms : int option
+    }
 
   let to_js_obj _ = [| |]
 
   let of_js_obj o =
     Array.map (fun el ->
         let el = Js.Unsafe.coerce el in
-        { id           = Js.Optdef.to_option el##.id           |> opt_map int_of_number
-        ; type_        = Js.Optdef.to_option el##.type_        |> opt_map Js.to_string
-        ; description  = Js.Optdef.to_option el##.description  |> opt_map Js.to_string
+        { id  = Js.Optdef.to_option el##.id |> opt_map int_of_number
+        ; type_ = Js.Optdef.to_option el##.type_ |> opt_map Js.to_string
+        ; description = Js.Optdef.to_option el##.description |> opt_map Js.to_string
         ; video_age_ms = Js.Optdef.to_option el##.video_age_ms |> opt_map int_of_number
         ; audio_age_ms = Js.Optdef.to_option el##.audio_age_ms |> opt_map int_of_number
         }) o
@@ -179,16 +183,17 @@ module Mp_info = struct
 
   type t = int
 
-  type r = { id           : int option
-           ; type_        : string option
-           ; description  : string option
-           ; video_age_ms : int option
-           ; audio_age_ms : int option
-           ; data_age_ms  : int option
-           ; video        : string option
-           ; audio        : string option
-           ; data         : string option
-           }
+  type r =
+    { id           : int option
+    ; type_        : string option
+    ; description  : string option
+    ; video_age_ms : int option
+    ; audio_age_ms : int option
+    ; data_age_ms  : int option
+    ; video        : string option
+    ; audio        : string option
+    ; data         : string option
+    }
 
   let to_js_obj (id:int) = [| ("id", Js.Unsafe.inject id) |]
 
@@ -218,7 +223,7 @@ module Mp_create = struct
            ; admin_key : string option
            ; secret    : string option
            ; pin       : string option
-           ; permanent : bool option
+           ; permanent : bool
            }
 
   type r = { id          : int option
@@ -243,7 +248,7 @@ module Mp_create = struct
                       ("admin_key", wrap_js_optdef x.admin_key Js.string);
                       ("secret", wrap_js_optdef x.secret Js.string);
                       ("pin", wrap_js_optdef x.pin Js.string);
-                      ("permanent", wrap_js_optdef x.permanent Js.bool) |] in
+                      ("permanent", x.permanent |> Js.bool |> Js.Unsafe.inject) |] in
     Array.append type_ specific
 
   let of_js_obj o =
@@ -393,18 +398,18 @@ let request_to_string : type a. a request -> string = function
   | Pause       -> "pause"   | Stop        -> "stop"      | Switch _    -> "switch"
 
 let request_to_params : type a. a request -> (string * Js.Unsafe.any) array = function
-  | List                -> Mp_list.to_js_obj ()
-  | Info x              -> Mp_list.to_js_obj x
-  | Create x            -> Mp_create.to_js_obj x
-  | Destroy x           -> Mp_destroy.to_js_obj x
-  | Recording x         -> Mp_recording.to_js_obj x
-  | Enable x            -> Mp_enable.to_js_obj x
-  | Disable x           -> Mp_disable.to_js_obj x
-  | Watch x             -> Mp_watch.to_js_obj x
-  | Start               -> Mp_start.to_js_obj ()
-  | Pause               -> Mp_pause.to_js_obj ()
-  | Stop                -> Mp_stop.to_js_obj ()
-  | Switch x            -> Mp_switch.to_js_obj x
+  | List -> Mp_list.to_js_obj ()
+  | Info x -> Mp_list.to_js_obj x
+  | Create x -> Mp_create.to_js_obj x
+  | Destroy x -> Mp_destroy.to_js_obj x
+  | Recording x -> Mp_recording.to_js_obj x
+  | Enable x -> Mp_enable.to_js_obj x
+  | Disable x -> Mp_disable.to_js_obj x
+  | Watch x -> Mp_watch.to_js_obj x
+  | Start -> Mp_start.to_js_obj ()
+  | Pause -> Mp_pause.to_js_obj ()
+  | Stop -> Mp_stop.to_js_obj ()
+  | Switch x -> Mp_switch.to_js_obj x
 
 let parse_response (type a) response (request:a request) : (a,string) Result.result =
   let open Janus_static.Plugin in
