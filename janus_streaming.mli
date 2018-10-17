@@ -5,10 +5,10 @@ module Mp_base : sig
     { id          : int option
     ; name        : string option
     ; description : string option
-    ; is_private  : bool
-    ; audio       : bool
-    ; video       : bool
-    ; data        : bool
+    ; is_private  : bool option
+    ; audio       : bool option
+    ; video       : bool option
+    ; data        : bool option
     }
 
   val to_js_obj : t -> (string * Js.Unsafe.any) array
@@ -43,7 +43,7 @@ module Mp_rtp : sig
     ; dataiface     : string option
     }
 
-  type t = { base  : Mp_base.t
+  type t = { base : Mp_base.t option
            ; audio : audio option
            ; video : video option
            ; data  : data option
@@ -140,7 +140,7 @@ module Mp_create : sig
     ; admin_key : string option
     ; secret    : string option
     ; pin       : string option
-    ; permanent : bool
+    ; permanent : bool option
     }
 
   type r = { id          : int option
