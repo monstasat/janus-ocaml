@@ -279,8 +279,6 @@ module Session = struct
         ?consent_dialog ?webrtc_state ?ice_state
         ?media_state ?slow_link ?on_cleanup ?detached () =
     let t, w = Lwt.wait () in
-    let e, push = Lwt_react.E.create () in
-    let _ = Lwt_react.E.map handle_message e in
 
     let open Js.Unsafe in
     let wrap_cb           = fun ?f name f_push ->
@@ -322,7 +320,8 @@ module Session = struct
     let on_remote_stream' =
       wrap_cb "onremotestream" on_remote_stream in
     let on_message' =
-      ("onmessage", (Js.wrap_callback (fun m j -> push (m,j,on_message,on_jsep)))
+      ("onmessage", (Js.wrap_callback (fun m j ->
+                         handle_message (m, j, on_message, on_jsep)))
                     |> inject) in
     let params =
       [| plugin_name
