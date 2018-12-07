@@ -1,3 +1,5 @@
+open Js_of_ocaml
+
 type 'a janus_result = ('a,string) Result.result Lwt.t
 
 (** Janus plugin handler **)

@@ -1,6 +1,9 @@
 (** Represents a stream of media content.
     A stream consists of several tracks such as video or audio track.
     https://developer.mozilla.org/en-US/docs/Web/API/MediaStream *)
+
+open Js_of_ocaml
+
 type media_stream
 
 type js_obj = (string * Js.Unsafe.any) array

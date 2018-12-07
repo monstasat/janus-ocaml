@@ -1,3 +1,5 @@
+open Js_of_ocaml
+
 (**  Base parameters for mountpoint of any kind (RTP, live, on demand) **)
 module Mp_base : sig
 

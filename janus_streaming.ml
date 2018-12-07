@@ -1,3 +1,5 @@
+open Js_of_ocaml
+
 let ( >|= ) x f = Js.Optdef.map x f
 let int_of_number x = int_of_float @@ Js.float_of_number x
 let wrap_js_optdef x f = Js.Optdef.option x >|= f |> Js.Unsafe.inject

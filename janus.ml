@@ -1,3 +1,5 @@
+open Js_of_ocaml
+
 type media_stream
 
 type js_obj = (string * Js.Unsafe.any) array
