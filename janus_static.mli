@@ -1,6 +1,8 @@
 open Js_of_ocaml
 
-type 'a janus_result = ('a,string) Result.result Lwt.t
+exception Not_created of string
+
+type 'a janus_result = ('a, string) Result.result Lwt.t
 
 (** Janus plugin handler **)
 module Plugin : sig
@@ -199,29 +201,18 @@ type debug_token = Trace
                  | Warn
                  | Error
 
-(**
-   Result of Janus session creation
-   error   - session was not created or error happened during operation
-   sucess  - session was created
-   destroy - session was destroyed
- **)
-type create_result = { error   : string Lwt.t
-                     ; success : Session.t Lwt.t
-                     ; destroy : unit Lwt.t
-                     }
-
 (** Create Janus session **)
 val create :
-  server             : [`One of string | `Many of string list] ->
-  ?ice_servers       : string list                             ->
-  ?ipv6              : bool                                    ->
-  ?with_credentials  : bool                                    ->
-  ?max_poll_events   : int                                     ->
-  ?destroy_on_unload : bool                                    ->
-  ?token             : string                                  ->
-  ?apisecret         : string                                  ->
-  unit                                                         ->
-  create_result
+  server:[`One of string | `Many of string list] ->
+  ?ice_servers:string list ->
+  ?ipv6:bool ->
+  ?with_credentials:bool ->
+  ?max_poll_events:int ->
+  ?destroy_on_unload:bool ->
+  ?token:string ->
+  ?apisecret:string ->
+  unit ->
+  'a Lwt.t * unit Lwt.t
 
 (** Initialize Janus **)
 val init : [`All of bool | `Several of debug_token list ] -> unit Lwt.t

@@ -1,6 +1,8 @@
 open Js_of_ocaml
 
-type 'a janus_result = ('a,string) Result.result Lwt.t
+exception Not_created of string
+
+type 'a janus_result = ('a, string) Result.result Lwt.t
 
 let ( >|= ) x f = Js.Optdef.map x f
 let ( >>= ) = Lwt.( >>= )
@@ -14,7 +16,7 @@ let opt_map f = function
   | None   -> None
 
 let is_some = function None -> false | _ -> true
-          
+
 let int_of_number x = int_of_float @@ Js.float_of_number x
 let wrap_js_optdef x f = Js.Optdef.option x >|= f |> Js.Unsafe.inject
 let bind_undef_or_null x f =
@@ -300,7 +302,8 @@ module Session = struct
        |> inject) in
     let error =
       ("error",
-       Js.wrap_callback (fun s -> Lwt.wakeup_exn w (Failure (Js.to_string s)))
+       Js.wrap_callback (fun s ->
+           Lwt.wakeup_exn w (Not_created (Js.to_string s)))
        |> inject) in
     let consent_dialog' =
       wrap_cb "consentDialog" consent_dialog ~f:Js.to_bool in
@@ -355,17 +358,10 @@ type debug_token =
   | Warn
   | Error
 
-type create_result =
-  { error   : string Lwt.t
-  ; success : Session.t Lwt.t
-  ; destroy : unit Lwt.t
-  }
-
 let create ~server ?ice_servers ?ipv6 ?with_credentials
     ?max_poll_events ?destroy_on_unload ?token ?apisecret () =
   let open Js.Unsafe in
-  let ok_t, ok_w = Lwt.wait () in
-  let err_t, err_w = Lwt.wait () in
+  let t, w = Lwt.wait () in
   let destr_t, destr_w = Lwt.wait () in
   let server' =
     ("server",
@@ -395,15 +391,15 @@ let create ~server ?ice_servers ?ipv6 ?with_credentials
      wrap_js_optdef apisecret Js.string) in
   let success =
     ("success",
-     Js.wrap_callback (fun () -> Lwt.wakeup ok_w ()) |> inject) in
+     Js.wrap_callback (fun () -> Lwt.wakeup w ()) |> inject) in
   let error =
     ("error",
-     Js.wrap_callback (fun s -> Lwt.wakeup err_w (Js.to_string s))
+     Js.wrap_callback (fun s ->
+         Lwt.wakeup_exn w (Not_created (Js.to_string s)))
      |> inject) in
   let destroy =
     ("destroy",
      Js.wrap_callback (fun () -> Lwt.wakeup destr_w ()) |> inject) in
-
   let j = Janus.create [| server'
                         ; ice_servers'
                         ; ipv6'
@@ -414,11 +410,7 @@ let create ~server ?ice_servers ?ipv6 ?with_credentials
                         ; success
                         ; error
                         ; destroy |] in
-
-  { success = ok_t >>= (fun () -> Lwt.return j)
-  ; error = err_t
-  ; destroy = destr_t
-  }
+  t >>= (fun () -> Lwt.return j), destr_t
 
 let init debug =
   let open Js.Unsafe in
