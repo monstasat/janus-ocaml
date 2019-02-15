@@ -215,7 +215,7 @@ val create :
   ?token:string ->
   ?apisecret:string ->
   unit ->
-  'a Lwt.t * unit Lwt.t
+  Session.t Lwt.t * unit Lwt.t
 
 (** Initialize Janus **)
 val init : [`All of bool | `Several of debug_token list ] -> unit Lwt.t
