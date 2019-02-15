@@ -6,27 +6,19 @@ type 'a janus_result = ('a, string) Result.result Lwt.t
 
 let ( >|= ) x f = Js.Optdef.map x f
 let ( >>= ) = Lwt.( >>= )
-
-let opt_bind f = function
-  | Some x -> f x
-  | None   -> None
-
-let opt_map f = function
-  | Some x -> Some (f x)
-  | None   -> None
+let ( % ) a b c = a (b c)
 
 let is_some = function None -> false | _ -> true
 
 let int_of_number x = int_of_float @@ Js.float_of_number x
 let wrap_js_optdef x f = Js.Optdef.option x >|= f |> Js.Unsafe.inject
-let bind_undef_or_null x f =
-  Js.Optdef.to_option x
-  |> opt_bind Js.Opt.to_option
-  |> opt_bind f
+
+let wakeup_exn (w : 'a Lwt.u) (s : Js.js_string Js.t) : unit =
+  Lwt.wakeup_exn w (Not_created (Js.to_string s))
 
 let call_js_method f params =
-  let t,w     = Lwt.wait () in
   let open Js.Unsafe in
+  let t, w = Lwt.wait () in
   let success =
     ("success",
      inject @@ Js.wrap_callback (fun x -> Lwt.wakeup w x)) in
@@ -48,7 +40,7 @@ module Plugin = struct
 
   type t = Janus.plugin Js.t
 
-  type plugin_type =
+  type typ =
     | Audiobridge
     | Echotest
     | Recordplay
@@ -89,7 +81,7 @@ module Plugin = struct
 
   (* Helper functions *)
 
-  let plugin_type_to_string type_ =
+  let typ_to_string type_ =
     let name = match type_ with
       | Audiobridge -> "audiobridge"
       | Echotest -> "echotest"
@@ -132,20 +124,20 @@ module Plugin = struct
     let response = Js.Optdef.to_option response in
     match response with
     | Some response ->
-      if (Js.Optdef.test ((Js.Unsafe.coerce response)##.error_code)) ||
-         (Js.Optdef.test ((Js.Unsafe.coerce response)##.error))
-      then
-        let error = match Js.Optdef.to_option (Js.Unsafe.coerce response)##.error with
-          | Some x -> Js.to_string x
-          | None -> "" in
-        let code  = match Js.Optdef.to_option (Js.Unsafe.coerce response)##.error_code with
-          | Some x -> Some (int_of_number x)
-          | None -> None in
-        Error (code, error)
-      else Data response
+       if (Js.Optdef.test ((Js.Unsafe.coerce response)##.error_code)) ||
+            (Js.Optdef.test ((Js.Unsafe.coerce response)##.error))
+       then
+         let error = match Js.Optdef.to_option (Js.Unsafe.coerce response)##.error with
+           | Some x -> Js.to_string x
+           | None -> "" in
+         let code  = match Js.Optdef.to_option (Js.Unsafe.coerce response)##.error_code with
+           | Some x -> Some (int_of_number x)
+           | None -> None in
+         Error (code, error)
+       else Data response
     | None -> Empty
 
-   let prepare_offer_or_answer ?jsep media trickle =
+  let prepare_offer_or_answer ?jsep media trickle =
     let open Js.Unsafe in
     let media' =
       ("media",
@@ -182,46 +174,47 @@ module Plugin = struct
        |> Array.of_list |> obj |> inject ) in
     let trickle' = ("trickle", wrap_js_optdef trickle Js.bool) in
     let jsep' = ("jsep", wrap_js_optdef jsep (fun x -> x)) in
-    [| media'; trickle' |]
-    |> (fun a -> if is_some jsep then Array.append a [| jsep' |] else a)
+    [|media'; trickle'|]
+    |> (fun a -> if is_some jsep then Array.append a [|jsep'|] else a)
 
-   (* Plugin functions *)
+  (* Plugin functions *)
 
-   let get_id plugin = plugin##getId () |> Js.float_of_number |> Int64.of_float
+  let get_id plugin = plugin##getId () |> Js.float_of_number |> Int64.of_float
 
-   let get_name plugin = plugin##getPlugin () |> Js.to_string
+  let get_name plugin = plugin##getPlugin () |> Js.to_string
 
-   (* FIXME use call_js_method inside?? *)
-   let send ?jsep (plugin:t) request request_to_string request_to_params parse_response =
-     let t,w     = Lwt.wait () in
-     let open Js.Unsafe in
+  (* FIXME use call_js_method inside?? *)
+  let send ?jsep (plugin : t) request request_to_string
+        request_to_params parse_response =
+    let open Js.Unsafe in
+    let t, w = Lwt.wait () in
     let request' = ("request", request_to_string request |> Js.string |> inject) in
     let params = request_to_params request in
     let message = ("message", inject @@ obj @@ Array.append [| request' |] params) in
     let jsep' = ("jsep", inject @@ Js.Optdef.option jsep) in
     let success = ("success", inject @@ Js.wrap_callback (fun x -> Lwt.wakeup w x)) in
     let error = ("error", inject @@ Js.wrap_callback (fun err ->
-        Lwt.wakeup_exn w (Failure (Js.to_string (Json.output err))))) in
+                                        Lwt.wakeup_exn w (Failure (Js.to_string (Json.output err))))) in
     plugin##send (obj  [| request'; message; jsep'; success; error |]);
     Lwt.catch
       (fun () -> t >>= (fun x -> Lwt.return @@ parse_response x request))
       (function
-        | Failure e -> Lwt.return_error e
-        | e -> Lwt.return_error (Printexc.to_string e))
+       | Failure e -> Lwt.return_error e
+       | e -> Lwt.return_error (Printexc.to_string e))
 
-  let create_answer (plugin:t) media trickle jsep =
+  let create_answer (plugin : t) media trickle jsep =
     prepare_offer_or_answer ~jsep:jsep media trickle
     |> call_js_method (fun x -> plugin##createAnswer x)
 
-  let create_offer (plugin:t) media trickle =
+  let create_offer (plugin : t) media trickle =
     prepare_offer_or_answer media trickle
     |> call_js_method (fun x -> plugin##createAnswer x)
 
-  let handle_remote_jsep (plugin:t) jsep =
+  let handle_remote_jsep (plugin : t) jsep =
     call_js_method (fun x -> plugin##handleRemoteJsep x)
       [| ("jsep", Js.Unsafe.inject jsep) |]
 
-  let dtmf (plugin:t) tones duration gap =
+  let dtmf (plugin : t) tones duration gap =
     let open Js.Unsafe in
     let tones' = ("tones", inject @@ Js.string tones) in
     let duration' = ("duration", wrap_js_optdef duration (fun x -> x)) in
@@ -229,17 +222,17 @@ module Plugin = struct
     call_js_method (fun x -> plugin##dtmf x)
       [| tones'; duration'; gap' |]
 
-  let data (plugin:t) text =
+  let data (plugin : t) text =
     let text' = ("text", Js.Unsafe.inject @@ Js.string text) in
     call_js_method (fun x -> plugin##data x) [| text' |]
 
-  let get_bitrate (plugin:t) =
+  let get_bitrate (plugin : t) =
     plugin##getBitrate () |> Js.to_string
 
-  let hangup (plugin:t) send_request =
+  let hangup (plugin : t) send_request =
     plugin##hangup (Js.bool send_request)
 
-  let detach (plugin:t) =
+  let detach (plugin : t) =
     call_js_method (fun x -> plugin##detach x) [| |]
 
 end
@@ -253,100 +246,76 @@ module Session = struct
     | Answer of Js.json Js.t
     | Unknown of Js.json Js.t
 
-  type 'a react_push = ('a -> unit)
+  let handle_message (plugin : Plugin.t Lwt.t) on_msg on_jsep msg jsep =
+    match Lwt.poll plugin with
+    | None ->
+       (* Unreachable case since promise should be fullfilled by the time
+          plugin starts sending messages *)
+       assert false
+    | Some (plugin : Plugin.t) ->
+       let jsep' =
+         Js.Optdef.to_option jsep
+         |> function None -> None
+                   | Some x -> Js.Opt.to_option x in
+       (* Handle message *)
+       (match on_msg with
+        | None -> ()
+        | Some f -> f plugin msg);
+       (* Handle jsep if some *)
+       (match jsep', on_jsep with
+        | Some jsep, Some f ->
+           let jsep = match Js.to_string (Js.Unsafe.coerce jsep)##.type_ with
+             | "offer" -> Offer jsep
+             | "answer" -> Answer jsep
+             | _ -> Unknown jsep in
+           f plugin jsep
+        | _ -> ())
 
-  let handle_message (msg,jsep,on_msg,on_jsep) =
-    (* Handle message *)
-    opt_map (fun f -> f msg) on_msg |> ignore;
-    (* Handle jsep if some *)
-    bind_undef_or_null jsep (fun jsep' ->
-        let jsep_type = (Js.to_string (Js.Unsafe.coerce jsep')##.type_) in
-        opt_map (fun f -> f (if String.equal jsep_type "offer"
-                             then Offer jsep'
-                             else if String.equal jsep_type "answer"
-                             then Answer jsep'
-                             else Unknown jsep'))
-          on_jsep |> (fun x -> Some x))
+  let get_server (session : t) : string =
+    Js.to_string @@ session##getServer ()
 
+  let is_connected (session : t) : bool =
+    Js.to_bool @@ session##isConnected ()
 
-  let get_server (session:t) =
-    session##getServer () |> Js.to_string
+  let get_session_id (session : t) : int64 =
+    Int64.of_float @@ Js.float_of_number @@ session##getSessionId ()
 
-  let is_connected (session:t) =
-    session##isConnected () |> Js.to_bool
+  let wrap_cb = fun ?f name f_push ->
+    name,
+    match f with
+    | None -> wrap_js_optdef f_push Js.wrap_callback
+    | Some f -> wrap_js_optdef f_push (fun push ->
+                    Js.wrap_callback (fun data -> push @@ f data))
 
-  let get_session_id (session:t) =
-    session##getSessionId () |> Js.float_of_number |> Int64.of_float
-
-  let attach ~session ~plugin_type ?opaque_id ?on_local_stream
+  let attach ~session ~typ ?opaque_id ?on_local_stream
         ?on_remote_stream ?on_message ?on_jsep
         ?consent_dialog ?webrtc_state ?ice_state
-        ?media_state ?slow_link ?on_cleanup ?detached () =
+        ?media_state ?slow_link ?on_cleanup ?detached ()
+      : Plugin.t Lwt.t =
+    let inject = Js.Unsafe.inject in
     let t, w = Lwt.wait () in
-
-    let open Js.Unsafe in
-    let wrap_cb           = fun ?f name f_push ->
-      (name, match f with
-        | Some f -> wrap_js_optdef f_push (fun push -> Js.wrap_callback (fun data -> push @@ f data))
-        | None   -> wrap_js_optdef f_push Js.wrap_callback) in
-    let plugin_name =
-      ("plugin",
-       Plugin.plugin_type_to_string plugin_type
-       |> Js.string |> inject) in
-    let opaque_id' =
-      ("opaqueId",
-       wrap_js_optdef opaque_id Js.string) in
-    let success =
-      ("success",
-       Js.wrap_callback (fun plugin -> Lwt.wakeup w plugin)
-       |> inject) in
-    let error =
-      ("error",
-       Js.wrap_callback (fun s ->
-           Lwt.wakeup_exn w (Not_created (Js.to_string s)))
-       |> inject) in
-    let consent_dialog' =
-      wrap_cb "consentDialog" consent_dialog ~f:Js.to_bool in
-    let webrtc_state' =
-      wrap_cb "webrtcState" webrtc_state ~f:Js.to_bool in
-    let ice_state' =
-      wrap_cb "iceState" ice_state ~f:Js.to_string in
-    let media_state' =
-      wrap_cb "mediaState" media_state
-        ~f:(fun (s, b) -> (Js.to_string s, Js.to_bool b)) in
-    let slow_link' =
-      wrap_cb "slowLink" slow_link ~f:Js.to_bool in
-    let on_cleanup' =
-      wrap_cb "oncleanup" on_cleanup in
-    let detached'  =
-      wrap_cb "detached" detached in
-    let on_local_stream' =
-      wrap_cb "onlocalstream" on_local_stream in
-    let on_remote_stream' =
-      wrap_cb "onremotestream" on_remote_stream in
-    let on_message' =
-      ("onmessage", (Js.wrap_callback (fun m j ->
-                         handle_message (m, j, on_message, on_jsep)))
-                    |> inject) in
-    let params =
-      [| plugin_name
-       ; opaque_id'
-       ; on_message'
-       ; consent_dialog'
-       ; webrtc_state'
-       ; ice_state'
-       ; media_state'
-       ; slow_link'
-       ; on_cleanup'
-       ; detached'
-       ; on_local_stream'
-       ; on_remote_stream'
-       ; success; error
-      |] in
-    let () = session##attach (obj params) in
+    let on_message' = handle_message t on_message on_jsep in
+    let to_media_state = fun (s, b) -> Js.(to_string s, to_bool b) in
+    [| ("plugin", inject @@ Js.string @@ Plugin.typ_to_string typ)
+     ; ("opaqueId", wrap_js_optdef opaque_id Js.string)
+     ; ("onmessage", inject @@ Js.wrap_callback on_message')
+     ; wrap_cb "consentDialog" consent_dialog ~f:Js.to_bool
+     ; wrap_cb "webrtcState" webrtc_state ~f:Js.to_bool
+     ; wrap_cb "iceState" ice_state ~f:Js.to_string
+     ; wrap_cb "mediaState" media_state ~f:to_media_state
+     ; wrap_cb "slowLink" slow_link ~f:Js.to_bool
+     ; wrap_cb "oncleanup" on_cleanup
+     ; wrap_cb "detached" detached
+     ; wrap_cb "onlocalstream" on_local_stream
+     ; wrap_cb "onremotestream" on_remote_stream
+     ; ("success", inject @@ Js.wrap_callback (Lwt.wakeup w))
+     ; ("error", inject @@ Js.wrap_callback (wakeup_exn w))
+    |]
+    |> Js.Unsafe.obj
+    |> (fun obj -> session##attach obj);
     t
 
-  let destroy (session:t) =
+  let destroy (session : t) : ('a, string) Lwt_result.t =
     call_js_method (fun x -> session##destroy x) [||]
 
 end
@@ -358,78 +327,56 @@ type debug_token =
   | Warn
   | Error
 
+let debug_token_to_string : debug_token -> string = function
+  | Trace -> "trace"
+  | Debug -> "debug"
+  | Log -> "log"
+  | Warn -> "warn"
+  | Error -> "error"
+
+let to_js_string_array = Js.array % Array.of_list % List.map Js.string
+
 let create ~server ?ice_servers ?ipv6 ?with_credentials
-    ?max_poll_events ?destroy_on_unload ?token ?apisecret () =
-  let open Js.Unsafe in
+      ?max_poll_events ?destroy_on_unload ?token ?apisecret () =
+  let inject = Js.Unsafe.inject in
   let t, w = Lwt.wait () in
   let destr_t, destr_w = Lwt.wait () in
-  let server' =
-    ("server",
-     (match server with
-      | `One x -> Js.string x |> inject
-      | `Many x -> (List.map Js.string x |> Array.of_list
-                    |> Js.array |> inject))) in
-  let ice_servers' =
-    ("iceServers",
-     wrap_js_optdef ice_servers
-       (fun l -> List.map Js.string l |> Array.of_list)) in
-  let ipv6' =
-    ("ipv6",
-     wrap_js_optdef ipv6 Js.bool) in
-  let with_credentials' =
-    ("withCredentials",
-     wrap_js_optdef with_credentials Js.bool) in
-  let max_poll_events' =
-    ("max_poll_events",
-     wrap_js_optdef max_poll_events (fun x -> x)) in
-  let destroy_on_unload' =
-    ("destroyOnUnload",
-     wrap_js_optdef destroy_on_unload Js.bool) in
-  let token' = ("token", wrap_js_optdef token Js.string) in
-  let apisecret' =
-    ("apisecret",
-     wrap_js_optdef apisecret Js.string) in
-  let success =
-    ("success",
-     Js.wrap_callback (fun () -> Lwt.wakeup w ()) |> inject) in
-  let error =
-    ("error",
-     Js.wrap_callback (fun s ->
-         Lwt.wakeup_exn w (Not_created (Js.to_string s)))
-     |> inject) in
-  let destroy =
-    ("destroy",
-     Js.wrap_callback (fun () -> Lwt.wakeup destr_w ()) |> inject) in
-  let j = Janus.create [| server'
-                        ; ice_servers'
-                        ; ipv6'
-                        ; with_credentials'
-                        ; max_poll_events'
-                        ; destroy_on_unload'
-                        ; token'; apisecret'
-                        ; success
-                        ; error
-                        ; destroy |] in
+  let server = match server with
+    | `One x -> inject @@ Js.string x
+    | `Many x -> inject @@ to_js_string_array x in
+  let j =
+    [| ("server", server)
+     ; ("iceServers", wrap_js_optdef ice_servers to_js_string_array)
+     ; ("ipv6", wrap_js_optdef ipv6 Js.bool)
+     ; ("withCredentials", wrap_js_optdef with_credentials Js.bool)
+     ; ("max_poll_events", wrap_js_optdef max_poll_events (fun x -> x))
+     ; ("destroyOnUnload", wrap_js_optdef destroy_on_unload Js.bool)
+     ; ("token", wrap_js_optdef token Js.string)
+     ; ("apisecret", wrap_js_optdef apisecret Js.string)
+     ; ("success", inject @@ Js.wrap_callback (Lwt.wakeup w))
+     ; ("error", inject @@ Js.wrap_callback (wakeup_exn w))
+     ; ("destroy", inject @@ Js.wrap_callback (Lwt.wakeup destr_w))
+    |]
+    |> Janus.create in
   t >>= (fun () -> Lwt.return j), destr_t
 
 let init debug =
-  let open Js.Unsafe in
-  let debug_token_to_string = function
-    | Trace -> "trace" | Debug -> "debug" | Log -> "log"
-    | Warn  -> "warn"  | Error -> "error" in
-  let thread, wakener = Lwt.wait () in
-  let debug' =
-    ("debug",
-     match debug with
-     | `All x -> Js.bool x |> inject
-     | `Several x ->
-        List.map (fun l -> debug_token_to_string l |> Js.string) x
-        |> Array.of_list |> Js.array |> inject) in
-  let cb =
-    ("callback",
-     (fun () -> (if Janus.isWebrtcSupported ()
-                 then Lwt.wakeup wakener ()
-                 else Lwt.wakeup_exn wakener (Failure "WebRTC is not supported")))
-     |> Js.wrap_callback |> inject) in
-  Janus.init [| debug'; cb |];
-  thread
+  let inject = Js.Unsafe.inject in
+  let t, w = Lwt.wait () in
+  [| ("debug",
+      match debug with
+      | `All x -> inject @@ Js.bool x
+      | `Several x ->
+         inject
+         @@ to_js_string_array
+         @@ List.map debug_token_to_string x)
+   ; ("callback",
+      inject
+      @@ Js.wrap_callback
+      @@ fun () ->
+         if Janus.isWebrtcSupported ()
+         then Lwt.wakeup w ()
+         else Lwt.wakeup_exn w (Failure "WebRTC is not supported"))
+  |]
+  |> Janus.init;
+  t
