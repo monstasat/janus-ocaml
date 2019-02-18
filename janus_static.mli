@@ -2,8 +2,6 @@ open Js_of_ocaml
 
 exception Not_created of string
 
-type 'a janus_result = ('a, string) Result.result Lwt.t
-
 (** Janus plugin handler **)
 module Plugin : sig
 
@@ -11,6 +9,8 @@ module Plugin : sig
 
   (** Plugin handler **)
   type t = Janus.plugin Js.t
+
+  type e = string
 
   (** Possible plugin types **)
   type typ =
@@ -84,7 +84,7 @@ module Plugin : sig
     ('b -> string) -> (* fn converting request to string *)
     ('b -> (string * Js.Unsafe.any) array) -> (* fn converting request to message params *)
     ('c -> 'b -> ('d,string) Result.result) -> (* fn converting js response plugin-specific type *)
-    'd janus_result
+    ('d, string) Lwt_result.t
 
   (** Ask Janus to create a WebRTC compliant ANSWER
       Arguments:
@@ -95,19 +95,26 @@ module Plugin : sig
       * trickle - whether to use Trickle ICE (default true)
       * jsep - session description sent by the plugin (received in onmessage callback) as its OFFER
    **)
-  val create_answer : t -> media_props -> bool option -> Js.json Js.t -> Js.json Js.t janus_result
+  val create_answer : t -> media_props -> bool option ->
+                      Js.json Js.t ->
+                      (Js.json Js.t, string) Lwt_result.t
 
   (** Ask Janus to create a WebRTC compliant OFFER
       Arguments:
       same as in 'create_answer', but without jsep
    **)
-  val create_offer  : t -> media_props -> bool option -> unit janus_result
+  val create_offer  : t ->
+                      media_props ->
+                      bool option ->
+                      (unit, string) Lwt_result.t
 
   (** Ask Janus to handle an incoming WebRTC complian session description.
       Arguments:
       jsep - session description sent by the plugin (received in onmessage callback) as its ANSWER
    **)
-  val handle_remote_jsep : t -> Js.json Js.t -> unit janus_result
+  val handle_remote_jsep : t ->
+                           Js.json Js.t ->
+                           (unit, string) Lwt_result.t
 
   (** Sends DTMF tone on the PeerConnection.
       Arguments:
@@ -116,14 +123,18 @@ module Plugin : sig
       * DTMF duration (default 500)
       * DTMF gap (default 50)
    **)
-  val dtmf : t -> string -> int option -> int option -> unit janus_result
+  val dtmf : t ->
+             string ->
+             int option ->
+             int option ->
+             (unit, string) Lwt_result.t
 
   (** Sends data through the Data Channel, if available.
       Arguments:
       * plugin handle
       * data string
    **)
-  val data : t -> string -> unit janus_result
+  val data : t -> string -> (unit, string) Lwt_result.t
 
   (**
      Gets a verbose description of the currently received stream bitrate
@@ -143,7 +154,7 @@ module Plugin : sig
      Detaches from the plugin and destroys the handle, tearing down the related PeerConnection
      FIXME: after that plugin handle will become null or undefined, how to handle this case?
    **)
-  val detach : t -> unit janus_result
+  val detach : t -> (unit, string) Lwt_result.t
 
 end
 
@@ -154,6 +165,10 @@ module Session : sig
 
   (** Janus instance **)
   type t = Janus.janus Js.t
+
+  type e =
+    | Err of string
+    | Destroyed
 
   (** Types of JSEP **)
   type jsep =
@@ -190,10 +205,10 @@ module Session : sig
     ?on_cleanup:(unit -> unit) ->
     ?detached:(unit -> unit) ->
     unit ->
-    Plugin.t Lwt.t
+    (Plugin.t * Plugin.e React.event) Lwt.t
 
   (** Destroy Janus session and close all the plugin handles and PeerConnections **)
-  val destroy : t -> unit janus_result
+  val destroy : t -> (unit, string) Lwt_result.t
 
 end
 
@@ -215,7 +230,7 @@ val create :
   ?token:string ->
   ?apisecret:string ->
   unit ->
-  Session.t Lwt.t * unit Lwt.t
+  (Session.t * Session.e React.event) Lwt.t
 
 (** Initialize Janus **)
 val init : [`All of bool | `Several of debug_token list ] -> unit Lwt.t

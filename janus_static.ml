@@ -2,8 +2,6 @@ open Js_of_ocaml
 
 exception Not_created of string
 
-type 'a janus_result = ('a, string) Result.result Lwt.t
-
 let ( >|= ) x f = Js.Optdef.map x f
 let ( >>= ) = Lwt.( >>= )
 let ( % ) a b c = a (b c)
@@ -13,8 +11,8 @@ let is_some = function None -> false | _ -> true
 let int_of_number x = int_of_float @@ Js.float_of_number x
 let wrap_js_optdef x f = Js.Optdef.option x >|= f |> Js.Unsafe.inject
 
-let wakeup_exn (w : 'a Lwt.u) (s : Js.js_string Js.t) : unit =
-  Lwt.wakeup_exn w (Not_created (Js.to_string s))
+let wakeup_exn (w : 'a Lwt.u) (s : string) : unit =
+  Lwt.wakeup_exn w (Not_created s)
 
 let call_js_method f params =
   let open Js.Unsafe in
@@ -39,6 +37,8 @@ module Plugin = struct
   (* Types *)
 
   type t = Janus.plugin Js.t
+
+  type e = string
 
   type typ =
     | Audiobridge
@@ -241,6 +241,10 @@ module Session = struct
 
   type t = Janus.janus Js.t
 
+  type e =
+    | Err of string
+    | Destroyed
+
   type jsep =
     | Offer of Js.json Js.t
     | Answer of Js.json Js.t
@@ -291,9 +295,15 @@ module Session = struct
         ?on_remote_stream ?on_message ?on_jsep
         ?consent_dialog ?webrtc_state ?ice_state
         ?media_state ?slow_link ?on_cleanup ?detached ()
-      : Plugin.t Lwt.t =
+      : (Plugin.t * Plugin.e React.event) Lwt.t =
     let inject = Js.Unsafe.inject in
     let t, w = Lwt.wait () in
+    let e, set_e = React.E.create () in
+    let on_error = fun e ->
+      let s = Js.to_string e in
+      if Lwt.is_sleeping t
+      then wakeup_exn w s
+      else set_e s in
     let on_message' = handle_message t on_message on_jsep in
     let to_media_state = fun (s, b) -> Js.(to_string s, to_bool b) in
     [| ("plugin", inject @@ Js.string @@ Plugin.typ_to_string typ)
@@ -309,11 +319,11 @@ module Session = struct
      ; wrap_cb "onlocalstream" on_local_stream
      ; wrap_cb "onremotestream" on_remote_stream
      ; ("success", inject @@ Js.wrap_callback (Lwt.wakeup w))
-     ; ("error", inject @@ Js.wrap_callback (wakeup_exn w))
+     ; ("error", inject @@ Js.wrap_callback on_error)
     |]
     |> Js.Unsafe.obj
     |> (fun obj -> session##attach obj);
-    t
+    Lwt.(t >|= (fun t -> t, e))
 
   let destroy (session : t) : ('a, string) Lwt_result.t =
     call_js_method (fun x -> session##destroy x) [||]
@@ -337,13 +347,20 @@ let debug_token_to_string : debug_token -> string = function
 let to_js_string_array = Js.array % Array.of_list % List.map Js.string
 
 let create ~server ?ice_servers ?ipv6 ?with_credentials
-      ?max_poll_events ?destroy_on_unload ?token ?apisecret () =
+      ?max_poll_events ?destroy_on_unload ?token ?apisecret ()
+    : (Session.t * Session.e React.event) Lwt.t =
   let inject = Js.Unsafe.inject in
   let t, w = Lwt.wait () in
-  let destr_t, destr_w = Lwt.wait () in
+  let (e : Session.e React.event), set_e = React.E.create () in
   let server = match server with
     | `One x -> inject @@ Js.string x
     | `Many x -> inject @@ to_js_string_array x in
+  let on_error = fun e ->
+    let s = Js.to_string e in
+    print_endline s;
+    if Lwt.is_sleeping t
+    then wakeup_exn w s
+    else set_e (Err s) in
   let j =
     [| ("server", server)
      ; ("iceServers", wrap_js_optdef ice_servers to_js_string_array)
@@ -354,11 +371,11 @@ let create ~server ?ice_servers ?ipv6 ?with_credentials
      ; ("token", wrap_js_optdef token Js.string)
      ; ("apisecret", wrap_js_optdef apisecret Js.string)
      ; ("success", inject @@ Js.wrap_callback (Lwt.wakeup w))
-     ; ("error", inject @@ Js.wrap_callback (wakeup_exn w))
-     ; ("destroy", inject @@ Js.wrap_callback (Lwt.wakeup destr_w))
+     ; ("error", inject @@ Js.wrap_callback on_error)
+     ; ("destroy", inject @@ Js.wrap_callback (fun () -> set_e Destroyed))
     |]
     |> Janus.create in
-  t >>= (fun () -> Lwt.return j), destr_t
+  t >>= (fun () -> Lwt.return (j, e))
 
 let init debug =
   let inject = Js.Unsafe.inject in
