@@ -81,8 +81,7 @@ module Plugin : sig
     ?jsep:'a -> (* jsep *)
     t -> (* plugin *)
     'b -> (* plugin-specific request *)
-    ('b -> string) -> (* fn converting request to string *)
-    ('b -> (string * Js.Unsafe.any) array) -> (* fn converting request to message params *)
+    ('b -> Jsobj.t) -> (* fn converting request to message params *)
     ('c -> 'b -> ('d,string) Result.result) -> (* fn converting js response plugin-specific type *)
     ('d, string) Lwt_result.t
 

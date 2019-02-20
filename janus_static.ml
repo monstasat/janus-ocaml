@@ -2,19 +2,17 @@ open Js_of_ocaml
 
 exception Not_created of string
 
-let ( >|= ) x f = Js.Optdef.map x f
 let ( >>= ) = Lwt.( >>= )
 let ( % ) a b c = a (b c)
 
 let is_some = function None -> false | _ -> true
 
 let int_of_number x = int_of_float @@ Js.float_of_number x
-let wrap_js_optdef x f = Js.Optdef.option x >|= f |> Js.Unsafe.inject
 
 let wakeup_exn (w : 'a Lwt.u) (s : string) : unit =
   Lwt.wakeup_exn w (Not_created s)
 
-let call_js_method f params =
+let call_js_method f (params : Jsobj.t) =
   let open Js.Unsafe in
   let t, w = Lwt.wait () in
   let success =
@@ -24,7 +22,7 @@ let call_js_method f params =
     ("error",
      inject @@ Js.wrap_callback (fun err ->
                    Lwt.wakeup_exn w (Failure (Js.to_string (Json.output err))))) in
-  f (obj @@ Array.append params [| success; error |]);
+  f Jsobj.(to_js @@ make [success; error] @ params);
   Lwt.catch
     (fun () -> t >>= (fun x -> Lwt.return_ok x))
     (function
@@ -141,8 +139,8 @@ module Plugin = struct
     let open Js.Unsafe in
     let media' =
       ("media",
-       [ ("audioSend", wrap_js_optdef media.audio_send Js.bool);
-         ("audioRecv", wrap_js_optdef media.audio_recv Js.bool);
+       [ ("audioSend", Any.of_bool_opt media.audio_send);
+         ("audioRecv", Any.of_bool_opt media.audio_recv);
          ("audio",
           match media.audio with
           | Some x ->
@@ -151,8 +149,8 @@ module Plugin = struct
              | Device id -> obj [| ("deviceId", Js.Unsafe.inject id) |] |> inject
              end
           | None -> inject Js.Optdef.empty);
-         ("videoSend", wrap_js_optdef media.video_send Js.bool);
-         ("videoRecv", wrap_js_optdef media.video_recv Js.bool);
+         ("videoSend", Any.of_bool_opt media.video_send);
+         ("videoRecv", Any.of_bool_opt media.video_recv);
          ("video",
           match media.video with
           | Some x ->
@@ -167,40 +165,57 @@ module Plugin = struct
                        ("height", inject h) |] |> inject
              end
           | None -> Js.Unsafe.inject Js.Optdef.empty);
-         ("data", wrap_js_optdef media.data Js.bool);
-         ("failIfNoVideo", wrap_js_optdef media.fail_if_no_video Js.bool);
-         ("failIfNoAudio", wrap_js_optdef media.fail_if_no_audio Js.bool);
-         ("screenShareFrameRate", wrap_js_optdef media.screen_rate (fun x -> x)) ]
-       |> Array.of_list |> obj |> inject ) in
-    let trickle' = ("trickle", wrap_js_optdef trickle Js.bool) in
-    let jsep' = ("jsep", wrap_js_optdef jsep (fun x -> x)) in
-    [|media'; trickle'|]
-    |> (fun a -> if is_some jsep then Array.append a [|jsep'|] else a)
+         ("data", Any.of_bool_opt media.data);
+         ("failIfNoVideo", Any.of_bool_opt media.fail_if_no_video);
+         ("failIfNoAudio", Any.of_bool_opt media.fail_if_no_audio);
+         ("screenShareFrameRate", Any.of_int_opt media.screen_rate) ]
+       |> Array.of_list
+       |> Any.of_jsobj) in
+    [| media'
+     ; ("trickle", Any.of_bool_opt trickle)
+    |]
+    |> (fun a ->
+      if is_some jsep
+      then Jsobj.(append a (singleton "jsep" (Any._of jsep)))
+      else a)
 
   (* Plugin functions *)
 
-  let get_id plugin = plugin##getId () |> Js.float_of_number |> Int64.of_float
+  let get_id (plugin : t) : int64 =
+    Int64.of_float @@ Js.float_of_number @@ plugin##getId ()
 
-  let get_name plugin = plugin##getPlugin () |> Js.to_string
+  let get_name (plugin : t) : string =
+    Js.to_string @@ plugin##getPlugin ()
 
   (* FIXME use call_js_method inside?? *)
-  let send ?jsep (plugin : t) request request_to_string
-        request_to_params parse_response =
-    let open Js.Unsafe in
+  let send ?(jsep : 'a option)
+        (plugin : t)
+        (request : 'b)
+        (request_to_obj : 'b -> Jsobj.t)
+        (parse_response : 'c -> 'b -> ('d, string) result)
+      : ('d, string) Lwt_result.t =
     let t, w = Lwt.wait () in
-    let request' = ("request", request_to_string request |> Js.string |> inject) in
-    let params = request_to_params request in
-    let message = ("message", inject @@ obj @@ Array.append [| request' |] params) in
-    let jsep' = ("jsep", inject @@ Js.Optdef.option jsep) in
-    let success = ("success", inject @@ Js.wrap_callback (fun x -> Lwt.wakeup w x)) in
-    let error = ("error", inject @@ Js.wrap_callback (fun err ->
-                                        Lwt.wakeup_exn w (Failure (Js.to_string (Json.output err))))) in
-    plugin##send (obj  [| request'; message; jsep'; success; error |]);
+    let on_success = fun rsp ->
+      print_endline "got response!";
+      Js.Unsafe.global##.console##log rsp |> ignore;
+      Lwt.wakeup w rsp in
+    let data =
+      [ ("jsep", Any.of_option (fun x -> x) jsep)
+      ; ("success", Any._of @@ Js.wrap_callback on_success)
+      ; ("error", Any._of @@ Js.wrap_callback (fun err ->
+                                 print_endline "error";
+                                 Lwt.wakeup_exn w (Failure (Js.to_string (Json.output err)))))
+      ]
+      |> Jsobj.make in
+    let req = Jsobj.(to_js @@ data @ request_to_obj request) in
+    print_endline "sending request!";
+    Js.Unsafe.global##.console##log req |> ignore;
+    plugin##send req;
     Lwt.catch
       (fun () -> t >>= (fun x -> Lwt.return @@ parse_response x request))
       (function
-       | Failure e -> Lwt.return_error e
-       | e -> Lwt.return_error (Printexc.to_string e))
+       | Failure e -> print_endline "catched!"; Lwt.return_error e
+       | e -> print_endline "catched!"; Lwt.return_error (Printexc.to_string e))
 
   let create_answer (plugin : t) media trickle jsep =
     prepare_offer_or_answer ~jsep:jsep media trickle
@@ -208,32 +223,31 @@ module Plugin = struct
 
   let create_offer (plugin : t) media trickle =
     prepare_offer_or_answer media trickle
-    |> call_js_method (fun x -> plugin##createAnswer x)
+    |> call_js_method (fun x -> plugin##createOffer x)
 
   let handle_remote_jsep (plugin : t) jsep =
     call_js_method (fun x -> plugin##handleRemoteJsep x)
-      [| ("jsep", Js.Unsafe.inject jsep) |]
+    @@ Jsobj.singleton "jsep" (Any._of jsep)
 
-  let dtmf (plugin : t) tones duration gap =
-    let open Js.Unsafe in
-    let tones' = ("tones", inject @@ Js.string tones) in
-    let duration' = ("duration", wrap_js_optdef duration (fun x -> x)) in
-    let gap' = ("gap", wrap_js_optdef gap (fun x -> x)) in
+  let dtmf (plugin : t) (tones : string) (duration : int option)
+        (gap : int option) =
     call_js_method (fun x -> plugin##dtmf x)
-      [| tones'; duration'; gap' |]
+    @@ Jsobj.make [ ("tones", Any.of_string tones)
+                  ; ("duration", Any.of_int_opt duration)
+                  ; ("gap", Any.of_int_opt gap) ]
 
-  let data (plugin : t) text =
-    let text' = ("text", Js.Unsafe.inject @@ Js.string text) in
-    call_js_method (fun x -> plugin##data x) [| text' |]
+  let data (plugin : t) (text : string) =
+    call_js_method (fun x -> plugin##data x)
+    @@ Jsobj.singleton "text" (Any.of_string text)
 
   let get_bitrate (plugin : t) =
-    plugin##getBitrate () |> Js.to_string
+    Js.to_string @@ plugin##getBitrate ()
 
   let hangup (plugin : t) send_request =
     plugin##hangup (Js.bool send_request)
 
   let detach (plugin : t) =
-    call_js_method (fun x -> plugin##detach x) [| |]
+    call_js_method (fun x -> plugin##detach x) Jsobj.empty
 
 end
 
@@ -287,9 +301,10 @@ module Session = struct
   let wrap_cb = fun ?f name f_push ->
     name,
     match f with
-    | None -> wrap_js_optdef f_push Js.wrap_callback
-    | Some f -> wrap_js_optdef f_push (fun push ->
-                    Js.wrap_callback (fun data -> push @@ f data))
+    | None -> Any.of_option Js.wrap_callback f_push
+    | Some f ->
+       Any.of_option (fun push ->
+           Js.wrap_callback (fun data -> push @@ f data)) f_push
 
   let attach ~session ~typ ?opaque_id ?on_local_stream
         ?on_remote_stream ?on_message ?on_jsep
@@ -306,8 +321,8 @@ module Session = struct
       else set_e s in
     let on_message' = handle_message t on_message on_jsep in
     let to_media_state = fun (s, b) -> Js.(to_string s, to_bool b) in
-    [| ("plugin", inject @@ Js.string @@ Plugin.typ_to_string typ)
-     ; ("opaqueId", wrap_js_optdef opaque_id Js.string)
+    [| ("plugin", Any.of_string @@ Plugin.typ_to_string typ)
+     ; ("opaqueId", Any.of_string_opt opaque_id)
      ; ("onmessage", inject @@ Js.wrap_callback on_message')
      ; wrap_cb "consentDialog" consent_dialog ~f:Js.to_bool
      ; wrap_cb "webrtcState" webrtc_state ~f:Js.to_bool
@@ -353,7 +368,7 @@ let create ~server ?ice_servers ?ipv6 ?with_credentials
   let t, w = Lwt.wait () in
   let (e : Session.e React.event), set_e = React.E.create () in
   let server = match server with
-    | `One x -> inject @@ Js.string x
+    | `One x -> Any.of_string x
     | `Many x -> inject @@ to_js_string_array x in
   let on_error = fun e ->
     let s = Js.to_string e in
@@ -363,13 +378,13 @@ let create ~server ?ice_servers ?ipv6 ?with_credentials
     else set_e (Err s) in
   let j =
     [| ("server", server)
-     ; ("iceServers", wrap_js_optdef ice_servers to_js_string_array)
-     ; ("ipv6", wrap_js_optdef ipv6 Js.bool)
-     ; ("withCredentials", wrap_js_optdef with_credentials Js.bool)
-     ; ("max_poll_events", wrap_js_optdef max_poll_events (fun x -> x))
-     ; ("destroyOnUnload", wrap_js_optdef destroy_on_unload Js.bool)
-     ; ("token", wrap_js_optdef token Js.string)
-     ; ("apisecret", wrap_js_optdef apisecret Js.string)
+     ; ("iceServers", Any.of_option to_js_string_array ice_servers)
+     ; ("ipv6", Any.of_bool_opt ipv6)
+     ; ("withCredentials", Any.of_bool_opt with_credentials)
+     ; ("max_poll_events", Any.of_int_opt max_poll_events)
+     ; ("destroyOnUnload", Any.of_bool_opt destroy_on_unload)
+     ; ("token", Any.of_string_opt token)
+     ; ("apisecret", Any.of_string_opt apisecret)
      ; ("success", inject @@ Js.wrap_callback (Lwt.wakeup w))
      ; ("error", inject @@ Js.wrap_callback on_error)
      ; ("destroy", inject @@ Js.wrap_callback (fun () -> set_e Destroyed))
