@@ -278,4 +278,4 @@ val request_to_obj : 'a request -> Jsobj.t
 val parse_response : 'a Js.t Js.optdef -> 'b request -> ('b, string) result
 
 (** Default media properties to be passed to Janus_static.Plugin.create_answer *)
-val default_media_props : Janus_static.Plugin.media_props
+val default_media_props : Janus.Plugin.media_props

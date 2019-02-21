@@ -3,30 +3,60 @@ open Js_of_ocaml_lwt
 open Lwt.Infix
 open Utils
 
-type error =
-  { code : int
-  ; error : string
+type ok = Yojson.Safe.json option
+
+type error = string * error_ext option
+and error_ext =
+  { response : string option
+  ; error : string option
+  ; timeout : float option
   }
 
-let error_to_string (e : error) : string =
-  match e.error with
-  | "" -> Printf.sprintf "Unknown error, code = %d" e.code
-  | s -> s
+let make_error ?timeout ?error ?response ?message ()
+    : ('a, error) result =
+  let message = match message with
+    | None | Some "" -> "<< internal error >>"
+    | Some s -> s in
+  let ext = match timeout, error, response with
+    | None, None, None -> None
+    | _ -> Some { response; error; timeout } in
+  Error (message, ext)
 
-let make_error ?(error = "") ~code () =
-  { code; error }
+let error_to_string ((text, ext) : error) : string =
+  let option_to_string k f v = match v with
+    | None -> ""
+    | Some r -> Printf.sprintf "%s: %s" k (f r) in
+  match ext with
+  | None -> Printf.sprintf "%s" text
+  | Some { response; error; timeout } ->
+     let details =
+       String.concat "; "
+         [ option_to_string "response" (fun x -> x) response
+         ; option_to_string "error" (fun x -> x) error
+         ; option_to_string "timeout" (Printf.sprintf "%g") timeout ] in
+     Printf.sprintf "%s: {%s}" text details
 
-let parse_response (rsp : 'a Js.opt Lwt_xmlHttpRequest.generic_http_frame) =
-  match Js.Opt.to_option rsp.content with
-  | None -> Error (make_error ~code:0 ~error:"empty response" ())
-  | Some s ->
-     (try Ok s
-      with e -> Error (make_error ~code:0 ~error:(Printexc.to_string e) ()))
+let parse_response (rsp : Js.js_string Js.t Lwt_xmlHttpRequest.generic_http_frame) =
+  match Js.to_string rsp.content with
+  | "" -> Ok None
+  | s ->
+     (try Ok (Some (Yojson.Safe.from_string s))
+      with
+      | exn ->
+         let error = match exn with
+           | Yojson.Json_error e -> e
+           | e -> Printexc.to_string e in
+         make_error
+           ~error
+           ~response:s
+           ~message:"Failed to parse response body"
+           ())
 
 let http_api_call ?timeout ?with_credentials
-      ?(body : Jsobj.t option)
+      ?(body : 'a Js.t option)
       ~meth
-      url =
+      url
+    : (ok, error) Lwt_result.t =
   let content_type = match meth with
     | `POST -> Some ("Content-Type", "application/json")
     | _ -> None in
@@ -36,7 +66,7 @@ let http_api_call ?timeout ?with_credentials
   let contents = match body with
     | None -> None
     | Some b ->
-       let s = Js.to_string @@ Json.output @@ Js.Unsafe.obj b in
+       let s = Js.to_string @@ Json.output b in
        Some (`String s) in
   let t =
     Lwt_xmlHttpRequest.perform_raw
@@ -44,19 +74,21 @@ let http_api_call ?timeout ?with_credentials
       ?contents
       ~headers
       ~override_method:meth
-      ~response_type:XmlHttpRequest.JSON
+      ~response_type:XmlHttpRequest.Text
       url
     >|= fun x ->
-    Printf.printf "got response: %d\n" x.code;
-    Js.Unsafe.global##.console##log x.content |> ignore;
     match x.code with
+    | 0 -> make_error ~message:"No response from the server" ()
     | 200 -> parse_response x
-    | code -> Error (make_error ~code ()) in
-  match timeout with
-  | None -> t
-  | Some (x : float) ->
-     [ Lwt_js.sleep (x /. 1000.)
-       >|= (fun () -> Error (make_error ~error:"Request timed out" ~code:0 ()))
-     ; t
-     ]
-     |> Lwt.choose
+    | _ ->
+       let response = Js.to_string x.content in
+       make_error ~message:"API call failed" ~response () in
+  Lwt.catch (fun () ->
+      match timeout with
+      | None -> t
+      | Some (x : float) ->
+         let sleep =
+           Lwt_js.sleep (x /. 1000.)
+           >|= (make_error ~timeout:x ~message:"Request timed out") in
+         Lwt.choose [t; sleep])
+    (fun exn -> Lwt.return @@ make_error ~message:(Printexc.to_string exn) ())

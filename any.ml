@@ -8,6 +8,9 @@ let _of (x : 'a) : t =
 let of_jsobj (x : Jsobj.t) : t =
   _of @@ Js.Unsafe.obj x
 
+let of_list (f : 'a -> t) (x : 'a list) : t =
+  _of @@ Js.array @@ Array.of_list @@ List.map f x
+
 let of_int (x : int) : t = _of x
 
 let of_bool (x : bool) : t =

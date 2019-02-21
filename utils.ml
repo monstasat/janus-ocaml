@@ -3,6 +3,10 @@ open Js_of_ocaml
 module List = struct
   include List
 
+  let rec mem ~(eq : 'a -> 'a -> bool) (x : 'a) = function
+    | [] -> false
+    | hd :: tl -> if eq hd x then true else mem ~eq x tl
+
   let cons_maybe (x : 'a option) (l : 'a list) : 'a list =
     match x with
     | None -> l
@@ -10,10 +14,24 @@ module List = struct
 end
 
 module Option = struct
+
+  let is_some : 'a option -> bool = function
+    | None -> false
+    | Some _ -> true
+
+  let is_none : 'a option -> bool = function
+    | None -> true
+    | Some _ -> false
+
   let map (f : 'a -> 'b) (x : 'a option) : 'b option =
     match x with
     | None -> None
     | Some x -> Some (f x)
+
+  let iter (f : 'a -> unit) (x : 'a option) : unit =
+    match x with
+    | None -> ()
+    | Some x -> f x
 end
 
 module String : sig

@@ -458,7 +458,7 @@ let request_to_obj : type a. a request -> Jsobj.t =
 let parse_response (type a) response
       (request : a request)
     : (a, string) result =
-  let open Janus_static.Plugin in
+  let open Janus.Plugin in
   let plugin_name = "streaming" in
   let typed_response = data_or_error response in
   begin match request with
@@ -479,7 +479,7 @@ let parse_response (type a) response
   end
 
 let default_media_props =
-  let open Janus_static.Plugin in
+  let open Janus.Plugin in
   { audio_send = Some false
   ; audio_recv = None
   ; audio = None
