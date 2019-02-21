@@ -2,5 +2,5 @@
   (name        janus)
   (wrapped     false)
   (synopsis    "jsoo wrapper for janus webrtc lib")
-  (libraries   lwt lwt_react js_of_ocaml)
+  (libraries   lwt_react js_of_ocaml js_of_ocaml-lwt yojson)
   (preprocess  (pps js_of_ocaml-ppx)))

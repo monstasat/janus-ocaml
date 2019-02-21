@@ -1,9 +1,9 @@
 open Js_of_ocaml
+open Utils
 
 exception Not_created of string
 
 let ( >>= ) = Lwt.( >>= )
-let ( % ) a b c = a (b c)
 
 let is_some = function None -> false | _ -> true
 
@@ -33,8 +33,6 @@ let call_js_method f (params : Jsobj.t) =
 module Plugin = struct
 
   (* Types *)
-
-  type t = Janus.plugin Js.t
 
   type e = string
 
@@ -179,81 +177,81 @@ module Plugin = struct
       then Jsobj.(append a (singleton "jsep" (Any._of jsep)))
       else a)
 
-  (* Plugin functions *)
+  class t ~(server : string) ~(session_id : int64) (p : Janus.plugin Js.t) =
+  object(self)
 
-  let get_id (plugin : t) : int64 =
-    Int64.of_float @@ Js.float_of_number @@ plugin##getId ()
+    method id : int64 =
+      Int64.of_float @@ Js.float_of_number @@ p##getId ()
 
-  let get_name (plugin : t) : string =
-    Js.to_string @@ plugin##getPlugin ()
+    method name : string =
+      Js.to_string @@ p##getPlugin ()
 
-  (* FIXME use call_js_method inside?? *)
-  let send ?(jsep : 'a option)
-        (plugin : t)
-        (request : 'b)
-        (request_to_obj : 'b -> Jsobj.t)
-        (parse_response : 'c -> 'b -> ('d, string) result)
-      : ('d, string) Lwt_result.t =
-    let t, w = Lwt.wait () in
-    let on_success = fun rsp ->
-      print_endline "got response!";
-      Js.Unsafe.global##.console##log rsp |> ignore;
-      Lwt.wakeup w rsp in
-    let data =
-      [ ("jsep", Any.of_option (fun x -> x) jsep)
-      ; ("success", Any._of @@ Js.wrap_callback on_success)
-      ; ("error", Any._of @@ Js.wrap_callback (fun err ->
-                                 print_endline "error";
-                                 Lwt.wakeup_exn w (Failure (Js.to_string (Json.output err)))))
-      ]
-      |> Jsobj.make in
-    let req = Jsobj.(to_js @@ data @ request_to_obj request) in
-    print_endline "sending request!";
-    Js.Unsafe.global##.console##log req |> ignore;
-    plugin##send req;
-    Lwt.catch
-      (fun () -> t >>= (fun x -> Lwt.return @@ parse_response x request))
-      (function
-       | Failure e -> print_endline "catched!"; Lwt.return_error e
-       | e -> print_endline "catched!"; Lwt.return_error (Printexc.to_string e))
+    method send : 'a 'b 'c 'd.
+                  ?jsep:'a ->
+                  'b ->
+                  ('b -> Jsobj.t) ->
+                  ('c -> 'b -> ('d, string) result) ->
+                  ('d, string) Lwt_result.t =
+      fun ?jsep request request_to_obj parse_response ->
+      let transaction = String.random 12 in
+      let jsep = match jsep with
+        | None -> None
+        | Some j -> Some ("jsep", Any._of j) in
+      let body =
+        [ ("janus", Any.of_string "message")
+        ; ("body", Any.of_jsobj @@ request_to_obj request)
+        ; ("transaction", Any.of_string transaction)
+        ]
+        |> List.cons_maybe jsep
+        |> Jsobj.make in
+      let url = Printf.sprintf "%s/%Ld/%Ld" server session_id self#id in
+      Lwt.(
+        Api.http_api_call ~meth:`POST ~body url
+        >|= function
+        | Ok x -> parse_response (Obj.magic x) request
+        | Error e -> Error (Api.error_to_string e))
 
-  let create_answer (plugin : t) media trickle jsep =
-    prepare_offer_or_answer ~jsep:jsep media trickle
-    |> call_js_method (fun x -> plugin##createAnswer x)
+    method create_answer ?(trickle : bool option)
+             (media : media_props) (jsep : Js.json Js.t)
+           : (Js.json Js.t, string) Lwt_result.t =
+      prepare_offer_or_answer ~jsep:jsep media trickle
+      |> call_js_method (fun x -> p##createAnswer x)
 
-  let create_offer (plugin : t) media trickle =
-    prepare_offer_or_answer media trickle
-    |> call_js_method (fun x -> plugin##createOffer x)
+    method create_offer ?(trickle : bool option) (media : media_props)
+           : (unit, string) Lwt_result.t =
+      prepare_offer_or_answer media trickle
+      |> call_js_method (fun x -> p##createOffer x)
 
-  let handle_remote_jsep (plugin : t) jsep =
-    call_js_method (fun x -> plugin##handleRemoteJsep x)
-    @@ Jsobj.singleton "jsep" (Any._of jsep)
+    method handle_remote_jsep (jsep : Js.json Js.t)
+           : (unit, string) Lwt_result.t =
+      call_js_method (fun x -> p##handleRemoteJsep x)
+      @@ Jsobj.singleton "jsep" (Any._of jsep)
 
-  let dtmf (plugin : t) (tones : string) (duration : int option)
-        (gap : int option) =
-    call_js_method (fun x -> plugin##dtmf x)
-    @@ Jsobj.make [ ("tones", Any.of_string tones)
-                  ; ("duration", Any.of_int_opt duration)
-                  ; ("gap", Any.of_int_opt gap) ]
+    method dtmf ?(duration : int option) ?(gap : int option) (tones : string)
+           : (unit, string) Lwt_result.t =
+      call_js_method (fun x -> p##dtmf x)
+      @@ Jsobj.make [ ("tones", Any.of_string tones)
+                    ; ("duration", Any.of_int_opt duration)
+                    ; ("gap", Any.of_int_opt gap) ]
 
-  let data (plugin : t) (text : string) =
-    call_js_method (fun x -> plugin##data x)
-    @@ Jsobj.singleton "text" (Any.of_string text)
+    method data (text : string) : (unit, string) Lwt_result.t =
+      call_js_method (fun x -> p##data x)
+      @@ Jsobj.singleton "text" (Any.of_string text)
 
-  let get_bitrate (plugin : t) =
-    Js.to_string @@ plugin##getBitrate ()
+    method get_bitrate () : string =
+      Js.to_string @@ p##getBitrate ()
 
-  let hangup (plugin : t) send_request =
-    plugin##hangup (Js.bool send_request)
+    method hangup ?(send_request = false) () : unit =
+      p##hangup (Js.bool send_request)
 
-  let detach (plugin : t) =
-    call_js_method (fun x -> plugin##detach x) Jsobj.empty
+    method detach () : (unit, string) Lwt_result.t =
+      call_js_method (fun x -> p##detach x) Jsobj.empty
+
+  end
 
 end
 
 module Session = struct
-
-  type t = Janus.janus Js.t
 
   type e =
     | Err of string
@@ -289,15 +287,6 @@ module Session = struct
            f plugin jsep
         | _ -> ())
 
-  let get_server (session : t) : string =
-    Js.to_string @@ session##getServer ()
-
-  let is_connected (session : t) : bool =
-    Js.to_bool @@ session##isConnected ()
-
-  let get_session_id (session : t) : int64 =
-    Int64.of_float @@ Js.float_of_number @@ session##getSessionId ()
-
   let wrap_cb = fun ?f name f_push ->
     name,
     match f with
@@ -306,42 +295,102 @@ module Session = struct
        Any.of_option (fun push ->
            Js.wrap_callback (fun data -> push @@ f data)) f_push
 
-  let attach ~session ~typ ?opaque_id ?on_local_stream
-        ?on_remote_stream ?on_message ?on_jsep
-        ?consent_dialog ?webrtc_state ?ice_state
-        ?media_state ?slow_link ?on_cleanup ?detached ()
-      : (Plugin.t * Plugin.e React.event) Lwt.t =
+  type stream_callback = Janus.media_stream Js.t -> unit
+
+  class t (s : Janus.janus Js.t) =
+  object(self)
+
+    method id : int64 =
+      Int64.of_float @@ Js.float_of_number @@ s##getSessionId ()
+
+    method server : string =
+      Js.to_string @@ s##getServer ()
+
+    method connected : bool =
+      Js.to_bool @@ s##isConnected ()
+
+    method attach ~typ ?opaque_id
+             ?(on_local_stream : stream_callback option)
+             ?(on_remote_stream : stream_callback option)
+             ?(on_message : (Plugin.t -> Js.json Js.t -> unit) option)
+             ?(on_jsep : (Plugin.t -> jsep -> unit) option)
+             ?(consent_dialog : (bool -> unit) option)
+             ?(webrtc_state : (bool -> unit) option)
+             ?(ice_state : (string -> unit) option)
+             ?(media_state : (string * bool -> unit) option)
+             ?(slow_link : (bool -> unit) option)
+             ?(on_cleanup : (unit -> unit) option)
+             ?(detached : (unit -> unit) option)
+             ()
+           : (Plugin.t * Plugin.e React.event) Lwt.t =
+      let inject = Js.Unsafe.inject in
+      let t, w = Lwt.wait () in
+      let e, set_e = React.E.create () in
+      let t = Lwt.(
+          t >|= (fun x ->
+            new Plugin.t ~session_id:self#id ~server:self#server x)) in
+      let on_error = fun e ->
+        let s = Js.to_string e in
+        if Lwt.is_sleeping t
+        then wakeup_exn w s
+        else set_e s in
+      let on_message' = handle_message t on_message on_jsep in
+      let to_media_state = fun (s, b) -> Js.(to_string s, to_bool b) in
+      [| ("plugin", Any.of_string @@ Plugin.typ_to_string typ)
+       ; ("opaqueId", Any.of_string_opt opaque_id)
+       ; ("onmessage", inject @@ Js.wrap_callback on_message')
+       ; wrap_cb "consentDialog" consent_dialog ~f:Js.to_bool
+       ; wrap_cb "webrtcState" webrtc_state ~f:Js.to_bool
+       ; wrap_cb "iceState" ice_state ~f:Js.to_string
+       ; wrap_cb "mediaState" media_state ~f:to_media_state
+       ; wrap_cb "slowLink" slow_link ~f:Js.to_bool
+       ; wrap_cb "oncleanup" on_cleanup
+       ; wrap_cb "detached" detached
+       ; wrap_cb "onlocalstream" on_local_stream
+       ; wrap_cb "onremotestream" on_remote_stream
+       ; ("success", inject @@ Js.wrap_callback (Lwt.wakeup w))
+       ; ("error", inject @@ Js.wrap_callback on_error)
+      |]
+      |> Js.Unsafe.obj
+      |> (fun obj -> s##attach obj);
+      Lwt.(t >|= (fun t -> t, e))
+
+    method destroy () : unit =
+      call_js_method (fun x -> s##destroy x) [||]
+      |> Lwt.ignore_result
+
+  end
+
+  let create ~server ?ice_servers ?ipv6 ?with_credentials
+        ?max_poll_events ?destroy_on_unload ?token ?apisecret ()
+      : (t * e React.event) Lwt.t =
     let inject = Js.Unsafe.inject in
     let t, w = Lwt.wait () in
-    let e, set_e = React.E.create () in
+    let (e : e React.event), set_e = React.E.create () in
+    let server = match server with
+      | `One x -> Any.of_string x
+      | `Many x -> inject @@ to_js_string_array x in
     let on_error = fun e ->
       let s = Js.to_string e in
+      print_endline s;
       if Lwt.is_sleeping t
       then wakeup_exn w s
-      else set_e s in
-    let on_message' = handle_message t on_message on_jsep in
-    let to_media_state = fun (s, b) -> Js.(to_string s, to_bool b) in
-    [| ("plugin", Any.of_string @@ Plugin.typ_to_string typ)
-     ; ("opaqueId", Any.of_string_opt opaque_id)
-     ; ("onmessage", inject @@ Js.wrap_callback on_message')
-     ; wrap_cb "consentDialog" consent_dialog ~f:Js.to_bool
-     ; wrap_cb "webrtcState" webrtc_state ~f:Js.to_bool
-     ; wrap_cb "iceState" ice_state ~f:Js.to_string
-     ; wrap_cb "mediaState" media_state ~f:to_media_state
-     ; wrap_cb "slowLink" slow_link ~f:Js.to_bool
-     ; wrap_cb "oncleanup" on_cleanup
-     ; wrap_cb "detached" detached
-     ; wrap_cb "onlocalstream" on_local_stream
-     ; wrap_cb "onremotestream" on_remote_stream
-     ; ("success", inject @@ Js.wrap_callback (Lwt.wakeup w))
-     ; ("error", inject @@ Js.wrap_callback on_error)
-    |]
-    |> Js.Unsafe.obj
-    |> (fun obj -> session##attach obj);
-    Lwt.(t >|= (fun t -> t, e))
-
-  let destroy (session : t) : ('a, string) Lwt_result.t =
-    call_js_method (fun x -> session##destroy x) [||]
+      else set_e (Err s) in
+    let j =
+      [| ("server", server)
+       ; ("iceServers", Any.of_option to_js_string_array ice_servers)
+       ; ("ipv6", Any.of_bool_opt ipv6)
+       ; ("withCredentials", Any.of_bool_opt with_credentials)
+       ; ("max_poll_events", Any.of_int_opt max_poll_events)
+       ; ("destroyOnUnload", Any.of_bool_opt destroy_on_unload)
+       ; ("token", Any.of_string_opt token)
+       ; ("apisecret", Any.of_string_opt apisecret)
+       ; ("success", inject @@ Js.wrap_callback (Lwt.wakeup w))
+       ; ("error", inject @@ Js.wrap_callback on_error)
+       ; ("destroy", inject @@ Js.wrap_callback (fun () -> set_e Destroyed))
+      |]
+      |> Janus.create in
+    t >>= (fun () -> Lwt.return (new t j, e))
 
 end
 
@@ -358,39 +407,6 @@ let debug_token_to_string : debug_token -> string = function
   | Log -> "log"
   | Warn -> "warn"
   | Error -> "error"
-
-let to_js_string_array = Js.array % Array.of_list % List.map Js.string
-
-let create ~server ?ice_servers ?ipv6 ?with_credentials
-      ?max_poll_events ?destroy_on_unload ?token ?apisecret ()
-    : (Session.t * Session.e React.event) Lwt.t =
-  let inject = Js.Unsafe.inject in
-  let t, w = Lwt.wait () in
-  let (e : Session.e React.event), set_e = React.E.create () in
-  let server = match server with
-    | `One x -> Any.of_string x
-    | `Many x -> inject @@ to_js_string_array x in
-  let on_error = fun e ->
-    let s = Js.to_string e in
-    print_endline s;
-    if Lwt.is_sleeping t
-    then wakeup_exn w s
-    else set_e (Err s) in
-  let j =
-    [| ("server", server)
-     ; ("iceServers", Any.of_option to_js_string_array ice_servers)
-     ; ("ipv6", Any.of_bool_opt ipv6)
-     ; ("withCredentials", Any.of_bool_opt with_credentials)
-     ; ("max_poll_events", Any.of_int_opt max_poll_events)
-     ; ("destroyOnUnload", Any.of_bool_opt destroy_on_unload)
-     ; ("token", Any.of_string_opt token)
-     ; ("apisecret", Any.of_string_opt apisecret)
-     ; ("success", inject @@ Js.wrap_callback (Lwt.wakeup w))
-     ; ("error", inject @@ Js.wrap_callback on_error)
-     ; ("destroy", inject @@ Js.wrap_callback (fun () -> set_e Destroyed))
-    |]
-    |> Janus.create in
-  t >>= (fun () -> Lwt.return (j, e))
 
 let init debug =
   let inject = Js.Unsafe.inject in

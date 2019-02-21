@@ -478,14 +478,6 @@ let parse_response (type a) response
   | Switch _ -> parse_async_response typed_response
   end
 
-let send ?jsep plugin request =
-  Janus_static.Plugin.send
-    ?jsep
-    plugin
-    request
-    request_to_obj
-    parse_response
-
 let default_media_props =
   let open Janus_static.Plugin in
   { audio_send = Some false

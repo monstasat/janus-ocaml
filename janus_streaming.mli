@@ -273,8 +273,9 @@ type _ request =
   | Stop      : unit request
   | Switch    : Mp_switch.t    -> unit request
 
-(** Same as 'Janus_static.Plugin.send' function, but simplified for streaming plugin *)
-val send : ?jsep:'a -> Janus_static.Plugin.t -> 'b request -> ('b, string) Lwt_result.t
+val request_to_obj : 'a request -> Jsobj.t
+
+val parse_response : 'a Js.t Js.optdef -> 'b request -> ('b, string) result
 
 (** Default media properties to be passed to Janus_static.Plugin.create_answer *)
 val default_media_props : Janus_static.Plugin.media_props
