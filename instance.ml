@@ -5,7 +5,7 @@ open Types
 type t =
   { logs : logs
   ; mutable close_listener : Dom_events.listener option
-  ; mutable sessions : Session.t list
+  ; mutable sessions : (int64 * Session.t) list
   }
 
 let detect_tab_close (t : t) : Dom_events.listener =
@@ -20,11 +20,12 @@ let detect_tab_close (t : t) : Dom_events.listener =
        then Some x else None in
   Dom_events.listen Dom_html.window (Dom_events.Typ.make event) (fun _ _ ->
       t.logs.info (fun m -> m "Closing window");
-      List.iter (fun (s : Session.t) ->
-          if s.props.destroy_on_unload
+      List.iter (fun (id, (s : Session.t)) ->
+          if Session.destroy_on_unload s
           then (
-            t.logs.info (fun m -> m "Destroying session %s" @@ Session.show s);
-            Session.destroy ~async_request:false ~notify_destroyed:false s))
+            t.logs.info (fun m -> m "Destroying session %Ld" id);
+            Session.destroy ~async_request:false ~notify_destroyed:false s
+            |> Lwt.ignore_result))
         t.sessions;
       Option.iter (fun f -> Js.Unsafe.fun_call f [||]) old_bf;
       true)
@@ -51,11 +52,13 @@ let create ?log_level () : t =
 
 let create_session (t : t) (props : Session.properties)
     : (Session.t, string) Lwt_result.t =
-  Lwt_result.(
-    Session.create_session ~logs:t.logs ~props ()
-    >|= (fun session ->
-      t.sessions <- List.cons session t.sessions;
-      session))
+  let on_create = fun (s : Session.t) ->
+    let id = Session.id s in
+    t.sessions <- List.set_assoc ~eq:Int64.equal id s t.sessions in
+  let on_destroy = fun (s : Session.t) ->
+    let id = Session.id s in
+    t.sessions <- List.remove_assoc id t.sessions in
+  Session.create_session ~on_create ~on_destroy ~logs:t.logs ~props ()
 
 (* FIXME legacy *)
 let init ?log_level () : unit Lwt.t =

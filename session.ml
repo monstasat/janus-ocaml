@@ -1,6 +1,9 @@
+open Js_of_ocaml
 open Utils
 open Lwt.Infix
 open Types
+
+let empty_response = "The response is empty"
 
 type properties =
   { server : Uri.t * Uri.t list
@@ -21,11 +24,15 @@ type t =
   ; mutable connected : bool
   ; mutable plugins : Plugin.t list
   ; props : properties
+  ; on_create : t -> unit
+  ; on_destroy : t -> unit
   ; logs : logs
   }
 
-let make ?(connected = true) ?(plugins = []) ~logs ~id ~server ~props () : t =
-  { id; server; connected; plugins; props; logs }
+let make ?(connected = true) ?(plugins = [])
+      ~on_create ~on_destroy
+      ~logs ~id ~server ~props () : t =
+  { id; server; connected; plugins; props; logs; on_create; on_destroy }
 
 let make_properties
       ?(ice_servers = Rtc_peer_connection.ICE.default)
@@ -51,7 +58,7 @@ let make_properties
   ; long_poll_timeout
   }
 
-type create_response =
+type response =
   { janus : string
   ; transaction : string
   ; session_id : int64 option [@default None]
@@ -67,27 +74,40 @@ and data =
   } [@@deriving yojson { strict = false }]
 
 let parse_response ~logs = function
-  | Ok None -> Error "Response is empty"
+  | Ok None ->
+     logs.err (fun m -> m "%s" empty_response);
+     Error empty_response
+  | Error e ->
+     let s = Api.error_to_string e in
+     logs.err (fun m -> m "%s" s);
+     Error s
   | Ok Some json ->
-     logs.debug (fun m -> m "%s" @@ Yojson.Safe.to_string json);
-     create_response_of_yojson json
-  | Error ((_, Some _) as e) ->
-     let msg = Api.error_to_string e in
-     logs.err (fun m -> m "%s" msg);
-     Error msg
-  | Error ((m, None) as e) ->
-     logs.err (fun m -> m "%s" @@ Api.error_to_string e);
-     Error (m ^ ": Is the gateway down?")
-
+     logs.debug (fun m ->
+         m "got response: %s"
+         @@ Yojson.Safe.to_string json);
+     match response_of_yojson json with
+     | Error e ->
+        logs.err (fun m -> m "Bad json format: %s" e);
+        Error e
+     | Ok ({ janus = "success"; _ } as rsp) -> Ok rsp
+     | Ok { error = None; _ } ->
+        let reason = "Unknown error" in
+        logs.err (fun m -> m "%s" reason);
+        Error reason
+     | Ok { error = Some e; _ } ->
+        logs.err (fun m -> m "Oops: %d %s" e.code e.reason);
+        Error e.reason
 
 let event_handler () : unit =
   (* FIXME implement *)
   ()
 
-let on_success ~(logs : logs)
+let on_create_success ~(logs : logs)
       ~reconnect
+      ~on_create
+      ~on_destroy
       (server : Uri.t)
-      (rsp : create_response)
+      (rsp : response)
       (props : properties)
     : (t, string) Lwt_result.t =
   match rsp.data, rsp.session_id with
@@ -96,22 +116,15 @@ let on_success ~(logs : logs)
      logs.err (fun m -> m "%s" s);
      Lwt_result.fail s
   | Some { id }, None | _, Some id ->
-     let (t : t) = make ~id ~server ~props ~logs () in
+     let (t : t) =
+       make ~id ~server ~props ~logs
+         ~on_create ~on_destroy () in
      if reconnect
      then logs.debug (fun m -> m "Claimed session: %Ld" id)
      else logs.debug (fun m -> m "Created session: %Ld" id);
      event_handler ();
+     on_create t;
      Lwt_result.return t
-
-let on_error ~(logs : logs) (rsp : create_response) : string =
-  match rsp.error with
-  | None ->
-     let reason = "Unknown error" in
-     logs.err (fun m -> m "%s" reason);
-     reason
-  | Some e ->
-     logs.err (fun m -> m "Oops: %d %s" e.code e.reason);
-     e.reason
 
 type reconnect =
   { server : Uri.t
@@ -121,6 +134,8 @@ type reconnect =
 let rec create_session
           ~(logs : logs)
           ~(props : properties)
+          ~on_create
+          ~on_destroy
           ?remaining
           ?reconnect
           ()
@@ -146,18 +161,15 @@ let rec create_session
     ~with_credentials:props.with_credentials
     ~body:message
     ~meth:`POST
-    (Uri.to_string server)
+    server
   >>= fun rsp ->
   match parse_response ~logs rsp with
-  | Ok (rsp : create_response) ->
-     (match rsp.janus with
-      | "success" ->
-         on_success ~logs
-           ~reconnect:(Option.is_some reconnect)
-           server
-           rsp
-           props
-      | _ -> Lwt_result.fail (on_error ~logs rsp))
+  | Ok rsp ->
+     on_create_success ~logs ~on_create ~on_destroy
+       ~reconnect:(Option.is_some reconnect)
+       server
+       rsp
+       props
   | Error e ->
      logs.err (fun m -> m "%s" e);
      (match snd props.server, remaining with
@@ -168,12 +180,9 @@ let rec create_session
       | (_ :: _), Some (hd :: tl) ->
          (* Let's try the next server *)
          Lwt_js.sleep 200.
-         >>= (create_session ~remaining:(hd, tl) ~logs ~props)
+         >>= (create_session ~on_create ~on_destroy
+                ~remaining:(hd, tl) ~logs ~props)
       | [], _ | _, None -> Lwt_result.fail e)
-
-let show (t : t) : string =
-  ignore t;
-  ""
 
 let id (t : t) : int64 =
   t.id
@@ -181,20 +190,91 @@ let id (t : t) : int64 =
 let server (t : t) : Uri.t =
   t.server
 
+let servers (t : t) : Uri.t list =
+  let a, b = t.props.server in
+  a :: b
+
+let ice_servers (t : t) : Rtc_peer_connection.ICE.t list =
+  t.props.ice_servers
+
+let ipv6 (t : t) : bool =
+  t.props.ipv6
+
+let with_credentials (t : t) : bool =
+  t.props.with_credentials
+
+let max_poll_events (t : t) : int =
+  t.props.max_poll_events
+
+let token (t : t) : string option =
+  t.props.token
+
+let apisecret (t : t) : string option =
+  t.props.apisecret
+
+let destroy_on_unload (t : t) : bool =
+  t.props.destroy_on_unload
+
+let keep_alive_period (t : t) : int =
+  t.props.keep_alive_period
+
+let long_poll_timeout (t : t) : int =
+  t.props.long_poll_timeout
+
 let connected (t : t) : bool =
   t.connected
 
-let attach (t : t) : Plugin.t =
-  ignore t;
-  failwith "implement me"
+let attach_plugin (_ : t) : Plugin.t =
+  failwith "XXX"
 
-let destroy ?async_request ?notify_destroyed (t : t) : unit =
-  ignore t; ignore async_request; ignore notify_destroyed;
-  ()
+let destroy ?(async_request = true)
+      ?(notify_destroyed = true) (t : t)
+    : (unit, string) Lwt_result.t =
+  t.logs.info (fun m -> m "destroying session %Ld (async=%b)"
+                          t.id async_request);
+  if not t.connected
+  then (
+    t.logs.warn (fun m -> m "Is the server down? (connected=false)");
+    Lwt.return_ok ())
+  else (
+    let (message : Message.t Js.t) =
+      Message.make
+        ~janus:"destroy"
+        ~transaction:(String.random 12)
+        ?apisecret:t.props.apisecret
+        ?token:t.props.token
+        () in
+    let (uri : Uri.t) =
+      Printf.sprintf "%s/%Ld" (Uri.path t.server) t.id
+      |> Uri.with_path t.server in
+    Api.http_api_call ~meth:`POST
+      ~async:async_request
+      ~with_credentials:t.props.with_credentials
+      ~body:message
+      uri
+    >|= (parse_response ~logs:t.logs)
+    >|= fun x ->
+    t.connected <- false;
+    t.on_destroy t;
+    if notify_destroyed then () (* FIXME *);
+    match x with
+    | Ok _ -> Ok ()
+    | Error e -> Error e)
 
-let reconnect (props : properties)
-      (({ id; server; logs; _ } as t) : t)
+let reconnect ?ice_servers ?ipv6 ?with_credentials ?max_poll_events
+      ?token ?apisecret ?destroy_on_unload
+      ?keep_alive_period ?long_poll_timeout ~server
+      (t : t)
     : (t, string) Lwt_result.t =
+  let props =
+    make_properties ?ice_servers ?ipv6 ?with_credentials ?max_poll_events
+      ?token ?apisecret ?destroy_on_unload
+      ?keep_alive_period ?long_poll_timeout ~server () in
   t.connected <- false;
-  let reconnect = { id; server } in
-  create_session ~reconnect ~logs ~props ()
+  create_session
+    ~on_create:t.on_create
+    ~on_destroy:t.on_destroy
+    ~reconnect:{ id = t.id; server = t.server }
+    ~logs:t.logs
+    ~props
+    ()

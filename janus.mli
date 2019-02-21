@@ -157,6 +157,58 @@ module Plugin : sig
 
 end
 
+module Session' : sig
+
+  type t
+
+  val id : t -> int64
+
+  val server : t -> Uri.t
+
+  val servers : t -> Uri.t list
+
+  val ice_servers : t -> Rtc_peer_connection.ICE.t list
+
+  val ipv6 : t -> bool
+
+  val with_credentials : t -> bool
+
+  val max_poll_events : t -> int
+
+  val token : t -> string option
+
+  val apisecret : t -> string option
+
+  val destroy_on_unload : t -> bool
+
+  val keep_alive_period : t -> int
+
+  val long_poll_timeout : t -> int
+
+  val connected : t -> bool
+
+  val reconnect :
+    ?ice_servers:Rtc_peer_connection.ICE.t list ->
+    ?ipv6:bool ->
+    ?with_credentials:bool ->
+    ?max_poll_events:int ->
+    ?token:string ->
+    ?apisecret:string ->
+    ?destroy_on_unload:bool ->
+    ?keep_alive_period:int ->
+    ?long_poll_timeout:int ->
+    server:Uri.t * Uri.t list ->
+    t ->
+    (t, string) Lwt_result.t
+
+  val destroy :
+    ?async_request:bool ->
+    ?notify_destroyed:bool ->
+    t ->
+    (unit, string) Lwt_result.t
+
+end
+
 (** Janus session instance **)
 module Session : sig
 

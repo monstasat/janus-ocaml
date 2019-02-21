@@ -223,7 +223,8 @@ module Plugin = struct
         |> List.cons_maybe jsep
         |> Jsobj.make
         |> Js.Unsafe.obj in
-      let url = Printf.sprintf "%s/%Ld/%Ld" server session_id self#id in
+      let url = Printf.sprintf "%s/%Ld/%Ld" server session_id self#id
+                |> Uri.of_string in
       Lwt.(
         Api.http_api_call ~meth:`POST ~body url
         >|= function
@@ -269,6 +270,8 @@ module Plugin = struct
   end
 
 end
+
+module Session' = Session
 
 module Session = struct
 

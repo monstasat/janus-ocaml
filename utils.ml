@@ -7,6 +7,15 @@ module List = struct
     | [] -> false
     | hd :: tl -> if eq hd x then true else mem ~eq x tl
 
+  let set_assoc ~eq k v l =
+    let rec aux ~eq k v = function
+      | acc, [] -> (k, v) :: List.rev acc
+      | acc, (a, b) :: tl ->
+         if eq a k
+         then List.rev_append acc ((k, v) :: tl)
+         else aux ~eq k v (((a, b) :: acc), tl) in
+    aux ~eq k v ([], l)
+
   let cons_maybe (x : 'a option) (l : 'a list) : 'a list =
     match x with
     | None -> l
