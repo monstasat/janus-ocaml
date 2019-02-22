@@ -8,6 +8,9 @@ type t =
   ; mutable sessions : (int64 * Session.t) list
   }
 
+let is_webrtc_supported () : bool =
+  Utils.is_webrtc_supported ()
+
 let detect_tab_close (t : t) : Dom_events.listener =
   let (ios : bool) =
     Js.to_string @@ Dom_html.window##.navigator##.platform

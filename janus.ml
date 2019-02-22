@@ -425,21 +425,10 @@ module Session = struct
 
 end
 
-let is_webrtc_supported () : bool =
-  let test_def = Js.Optdef.test in
-  let test_opt = Js.Opt.test in
-  let coerce = Js.Unsafe.coerce in
-  let wnd = Dom_html.window in
-  let nav = wnd##.navigator in
-  test_def (coerce wnd)##.RTCPeerConnection
-  && test_opt (coerce wnd)##.RTCPeerConnection
-  && test_def (coerce nav)##.getUserMedia
-  && test_opt (coerce nav)##.getUserMedia
-
 let attach_media_stream (elt : #Dom_html.mediaElement Js.t)
       (stream : media_stream Js.t) : unit =
   let elt = (elt :> Dom_html.mediaElement Js.t) in
-  let details = Adapter.adapter.browser_details in
+  let details = Adapter.browser_details () in
   match details.browser with
   | "chrome" ->
      let src_type = Js.to_string @@ Js.typeof elt##.src in
@@ -449,14 +438,14 @@ let attach_media_stream (elt : #Dom_html.mediaElement Js.t)
      then (
        let url = Dom_html.window##._URL in
        elt##.src := url##createObjectURL (Js.Unsafe.coerce stream))
-     else Logs.err (fun m -> m "Rrror attaching stream to element")
+     else Logs.err (fun m -> m "Error attaching stream to element")
   | _ -> (Js.Unsafe.coerce elt)##.srcObject := stream
 
 let reattach_media_stream ~(from : #Dom_html.mediaElement Js.t)
       (_to : #Dom_html.mediaElement Js.t) : unit =
   let from = (from :> Dom_html.mediaElement Js.t) in
   let _to = (_to :> Dom_html.mediaElement Js.t) in
-  let details = Adapter.adapter.browser_details in
+  let details = Adapter.browser_details () in
   let swap_obj ~from _to =
     let from_obj = (Js.Unsafe.coerce from)##.scrObject in
     (Js.Unsafe.coerce _to)##.scrObject := from_obj in

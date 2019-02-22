@@ -5,6 +5,11 @@ open Types
 
 let empty_response = "The response is empty"
 
+type promises =
+  { destroy : unit Lwt.t
+  ; error : string Lwt.t
+  }
+
 type properties =
   { server : Uri.t * Uri.t list
   ; ice_servers : Rtc_peer_connection.ICE.t list
@@ -32,7 +37,15 @@ type t =
 let make ?(connected = true) ?(plugins = [])
       ~on_create ~on_destroy
       ~logs ~id ~server ~props () : t =
-  { id; server; connected; plugins; props; logs; on_create; on_destroy }
+  { id
+  ; server
+  ; connected
+  ; plugins
+  ; props
+  ; logs
+  ; on_create
+  ; on_destroy
+  }
 
 let make_properties
       ?(ice_servers = Rtc_peer_connection.ICE.default)
@@ -46,6 +59,7 @@ let make_properties
       ?(long_poll_timeout = 60000)
       ~server
       () : properties =
+  let max_poll_events = if max_poll_events < 1 then 1 else max_poll_events in
   { server
   ; ice_servers
   ; ipv6
@@ -98,9 +112,38 @@ let parse_response ~logs = function
         logs.err (fun m -> m "Oops: %d %s" e.code e.reason);
         Error e.reason
 
-let event_handler () : unit =
-  (* FIXME implement *)
-  ()
+let handle_event (ev : Yojson.Safe.json option) : unit Lwt.t =
+  ignore ev;
+  Lwt.return_unit
+
+let rec event_handler ?(retries = 0) (t : t) : unit Lwt.t =
+  ignore t;
+  t.logs.debug (fun m -> m "Long poll...");
+  if not t.connected
+  then (
+    t.logs.warn (fun m -> m "Is the server down? (connected=false)");
+    Lwt.return_unit)
+  else Printf.(
+    let now = new%js Js.date_now##getTime in
+    let query =
+      ["rid", [sprintf "%g" now]] in
+    let uri =
+      Printf.(
+        Uri.with_path t.server (sprintf "%Ld" t.id)
+        |> fun uri -> Uri.with_query uri query) in
+    Api.http_api_call ~meth:`GET
+      ~timeout:t.props.long_poll_timeout
+      ~with_credentials:t.props.with_credentials
+      uri
+    >>= function
+    | Ok x -> handle_event x
+    | Error e ->
+       t.logs.err (fun m -> m "%s" @@ Api.error_to_string e);
+       if retries > 2
+       then (
+         t.connected <- false;
+         Lwt.return_unit)
+       else event_handler ~retries:(succ retries) t)
 
 let on_create_success ~(logs : logs)
       ~reconnect
@@ -122,7 +165,7 @@ let on_create_success ~(logs : logs)
      if reconnect
      then logs.debug (fun m -> m "Claimed session: %Ld" id)
      else logs.debug (fun m -> m "Created session: %Ld" id);
-     event_handler ();
+     Lwt.ignore_result @@ event_handler t;
      on_create t;
      Lwt_result.return t
 
@@ -140,49 +183,52 @@ let rec create_session
           ?reconnect
           ()
         : (t, string) Lwt_result.t =
-  (* TODO websockets *)
-  let message =
-    Message.make
-      ?session_id:(Option.map (fun x -> x.id) reconnect)
-      ~janus:(if Option.is_some reconnect then "claim" else "create")
-      ~transaction:(String.random 12)
-      ?token:props.token
-      ?apisecret:props.apisecret
-      () in
-  (* TODO websockets *)
-  let server, remaining = match reconnect, remaining with
-    (* Reconnecting the session *)
-    | Some { server; _ }, _ -> server, None
-    (* Connecting at first time *)
-    | None, None -> let s, r = props.server in s, Some r
-    (* Trying remaining servers *)
-    | None, Some (hd, tl) -> hd, Some tl in
-  Api.http_api_call
-    ~with_credentials:props.with_credentials
-    ~body:message
-    ~meth:`POST
-    server
-  >>= fun rsp ->
-  match parse_response ~logs rsp with
-  | Ok rsp ->
-     on_create_success ~logs ~on_create ~on_destroy
-       ~reconnect:(Option.is_some reconnect)
-       server
-       rsp
-       props
-  | Error e ->
-     logs.err (fun m -> m "%s" e);
-     (match snd props.server, remaining with
-      | (_ :: _), Some [] ->
-         "Error connecting to any of the provided Janus servers: \
-          Is the server down?"
-         |> Lwt_result.fail
-      | (_ :: _), Some (hd :: tl) ->
-         (* Let's try the next server *)
-         Lwt_js.sleep 200.
-         >>= (create_session ~on_create ~on_destroy
-                ~remaining:(hd, tl) ~logs ~props)
-      | [], _ | _, None -> Lwt_result.fail e)
+  if not @@ is_webrtc_supported ()
+  then Lwt.return_error "WebRTC is not supported by this browser"
+  else (
+    (* TODO websockets *)
+    let message =
+      Message.make
+        ?session_id:(Option.map (fun x -> x.id) reconnect)
+        ~janus:(if Option.is_some reconnect then "claim" else "create")
+        ~transaction:(String.random 12)
+        ?token:props.token
+        ?apisecret:props.apisecret
+        () in
+    (* TODO websockets *)
+    let server, remaining = match reconnect, remaining with
+      (* Reconnecting the session *)
+      | Some { server; _ }, _ -> server, None
+      (* Connecting at first time *)
+      | None, None -> let s, r = props.server in s, Some r
+      (* Trying remaining servers *)
+      | None, Some (hd, tl) -> hd, Some tl in
+    Api.http_api_call
+      ~with_credentials:props.with_credentials
+      ~body:message
+      ~meth:`POST
+      server
+    >>= fun rsp ->
+    match parse_response ~logs rsp with
+    | Ok rsp ->
+       on_create_success ~logs ~on_create ~on_destroy
+         ~reconnect:(Option.is_some reconnect)
+         server
+         rsp
+         props
+    | Error e ->
+       logs.err (fun m -> m "%s" e);
+       (match snd props.server, remaining with
+        | (_ :: _), Some [] ->
+           "Error connecting to any of the provided Janus servers: \
+            Is the server down?"
+           |> Lwt_result.fail
+        | (_ :: _), Some (hd :: tl) ->
+           (* Let's try the next server *)
+           Lwt_js.sleep 200.
+           >>= (create_session ~on_create ~on_destroy
+                  ~remaining:(hd, tl) ~logs ~props)
+        | [], _ | _, None -> Lwt_result.fail e))
 
 let id (t : t) : int64 =
   t.id

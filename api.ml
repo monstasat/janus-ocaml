@@ -8,7 +8,7 @@ type 'a frame = 'a Lwt_xmlHttpRequest.generic_http_frame
 type error_ext =
   { response : string option
   ; error : string option
-  ; timeout : float option
+  ; timeout : int option
   }
 and error = string * error_ext option
 and ok = Yojson.Safe.json option
@@ -35,7 +35,7 @@ let error_to_string ((text, ext) : error) : string =
        String.concat ", "
          [ option_to_string "response" (fun x -> x) response
          ; option_to_string "error" (fun x -> x) error
-         ; option_to_string "timeout" (Printf.sprintf "%g") timeout ] in
+         ; option_to_string "timeout" (Printf.sprintf "%d") timeout ] in
      Printf.sprintf "%s: \n%s" text details
 
 let parse_response (rsp : Js.js_string Js.t frame) =
@@ -89,9 +89,9 @@ let http_api_call ?async ?timeout ?with_credentials
   Lwt.catch (fun () ->
       match timeout with
       | None -> t
-      | Some (x : float) ->
+      | Some (x : int) ->
          let sleep =
-           Lwt_js.sleep (x /. 1000.)
+           Lwt_js.sleep @@ (float_of_int x /. 1000.)
            >|= (make_error ~timeout:x ~message:"Request timed out") in
          Lwt.choose [t; sleep])
     (fun exn -> Lwt.return @@ make_error ~message:(Printexc.to_string exn) ())

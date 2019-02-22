@@ -3,11 +3,5 @@
   (wrapped     false)
   (private_modules adapter any utils jsobj)
   (synopsis    "jsoo wrapper for janus webrtc lib")
-  (libraries   uri logs logs.browser gen_js_api lwt_react
-               js_of_ocaml js_of_ocaml-lwt yojson)
+  (libraries   uri logs logs.browser lwt_react js_of_ocaml js_of_ocaml-lwt yojson)
   (preprocess  (pps js_of_ocaml-ppx ppx_deriving_yojson)))
-
-(rule
-  (targets adapter.ml)
-  (deps adapter.mli)
-  (action (progn (run ocamlfind gen_js_api/gen_js_api adapter.mli))))

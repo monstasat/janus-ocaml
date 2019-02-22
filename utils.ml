@@ -66,3 +66,14 @@ let ( % ) a b c = a (b c)
 
 let to_js_string_array =
   Js.array % Array.of_list % List.map Js.string
+
+let is_webrtc_supported () : bool =
+  let test_def = Js.Optdef.test in
+  let test_opt = Js.Opt.test in
+  let coerce = Js.Unsafe.coerce in
+  let wnd = Dom_html.window in
+  let nav = wnd##.navigator in
+  test_def (coerce wnd)##.RTCPeerConnection
+  && test_opt (coerce wnd)##.RTCPeerConnection
+  && test_def (coerce nav)##.getUserMedia
+  && test_opt (coerce nav)##.getUserMedia
