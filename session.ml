@@ -113,23 +113,34 @@ let parse_response ~logs = function
         Error e.reason
 
 let handle_event (ev : Yojson.Safe.json option) : unit Lwt.t =
-  ignore ev;
+  begin match ev with
+  | None -> print_endline "got empty event"
+  | Some x -> Printf.printf "got events: %s\n" @@ Yojson.Safe.to_string x
+  end;
   Lwt.return_unit
 
 let rec event_handler ?(retries = 0) (t : t) : unit Lwt.t =
-  ignore t;
   t.logs.debug (fun m -> m "Long poll...");
   if not t.connected
   then (
     t.logs.warn (fun m -> m "Is the server down? (connected=false)");
     Lwt.return_unit)
   else Printf.(
-    let now = new%js Js.date_now##getTime in
+    let opt_string_to_query (name : string) = function
+      | None -> None
+      | Some s ->
+         let v = Js.to_string @@ Js.encodeURIComponent (Js.string s) in
+         Some (name, [v]) in
+    let now = Int64.of_float @@ new%js Js.date_now##getTime in
     let query =
-      ["rid", [sprintf "%g" now]] in
+      [ "rid", [sprintf "%Ld" now]
+      ; "maxev", [string_of_int t.props.max_poll_events]
+      ]
+      |> List.cons_maybe (opt_string_to_query "token" t.props.token)
+      |> List.cons_maybe (opt_string_to_query "apisecret" t.props.apisecret) in
     let uri =
       Printf.(
-        Uri.with_path t.server (sprintf "%Ld" t.id)
+        Uri.append_path t.server (sprintf "%Ld" t.id)
         |> fun uri -> Uri.with_query uri query) in
     Api.http_api_call ~meth:`GET
       ~timeout:t.props.long_poll_timeout
@@ -145,7 +156,7 @@ let rec event_handler ?(retries = 0) (t : t) : unit Lwt.t =
          Lwt.return_unit)
        else event_handler ~retries:(succ retries) t)
 
-let on_create_success ~(logs : logs)
+let on_session_created ~(logs : logs)
       ~reconnect
       ~on_create
       ~on_destroy
@@ -165,8 +176,8 @@ let on_create_success ~(logs : logs)
      if reconnect
      then logs.debug (fun m -> m "Claimed session: %Ld" id)
      else logs.debug (fun m -> m "Created session: %Ld" id);
-     Lwt.ignore_result @@ event_handler t;
      on_create t;
+     Lwt.ignore_result @@ event_handler t;
      Lwt_result.return t
 
 type reconnect =
@@ -205,13 +216,13 @@ let rec create_session
       | None, Some (hd, tl) -> hd, Some tl in
     Api.http_api_call
       ~with_credentials:props.with_credentials
-      ~body:message
+      ~body:(Message.to_yojson message)
       ~meth:`POST
       server
     >>= fun rsp ->
     match parse_response ~logs rsp with
     | Ok rsp ->
-       on_create_success ~logs ~on_create ~on_destroy
+       on_session_created ~logs ~on_create ~on_destroy
          ~reconnect:(Option.is_some reconnect)
          server
          rsp
@@ -270,8 +281,47 @@ let long_poll_timeout (t : t) : int =
 let connected (t : t) : bool =
   t.connected
 
-let attach_plugin (_ : t) : Plugin.t =
-  failwith "XXX"
+let on_plugin_created ~(logs : logs)
+      (rsp : response)
+    : (Plugin.t, string) Lwt_result.t =
+  match rsp.data with
+  | None ->
+     let s = "No handle ID found in response" in
+     logs.err (fun m -> m "%s" s);
+     Lwt_result.fail s
+  | Some { id } ->
+     logs.info (fun m -> m "Created plugin: %Ld" id);
+     Lwt_result.return (Obj.magic ())
+
+let attach_plugin ?(opaque_id : string option)
+      ?(token : string option)
+      ~(plugin : string)
+      (t : t) : (Plugin.t, string) Lwt_result.t =
+  ignore (opaque_id, token);
+  if not t.connected
+  then (
+    let s = "Is the server down? (connected=false)" in
+    t.logs.err (fun m -> m "%s" s);
+    Lwt.return_error s)
+  else (
+    let (message : Message.t) =
+      Message.make
+        ?opaque_id
+        ?token:t.props.token
+        ?apisecret:t.props.apisecret
+        ~plugin
+        ~transaction:(String.random 12)
+        ~janus:"attach"
+        () in
+    (* TODO websosckets *)
+    Api.http_api_call ~meth:`POST
+      ~with_credentials:t.props.with_credentials
+      ~body:(Message.to_yojson message)
+      (Uri.append_path t.server (Int64.to_string t.id))
+    >|= parse_response ~logs:t.logs
+    >>= function
+    | Ok rsp -> on_plugin_created ~logs:t.logs rsp
+    | Error e -> Lwt_result.fail e)
 
 let destroy ?(async_request = true)
       ?(notify_destroyed = true) (t : t)
@@ -283,7 +333,7 @@ let destroy ?(async_request = true)
     t.logs.warn (fun m -> m "Is the server down? (connected=false)");
     Lwt.return_ok ())
   else (
-    let (message : Message.t Js.t) =
+    let (message : Message.t) =
       Message.make
         ~janus:"destroy"
         ~transaction:(String.random 12)
@@ -296,7 +346,7 @@ let destroy ?(async_request = true)
     Api.http_api_call ~meth:`POST
       ~async:async_request
       ~with_credentials:t.props.with_credentials
-      ~body:message
+      ~body:(Message.to_yojson message)
       uri
     >|= (parse_response ~logs:t.logs)
     >|= fun x ->

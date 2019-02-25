@@ -66,10 +66,12 @@ let create_session (t : t) (props : Session.properties)
 (* FIXME legacy *)
 let init ?log_level () : unit Lwt.t =
   ignore log_level;
-  let t = create ~log_level:Debug () in
-  let server = Uri.of_string "http://127.0.0.1:8088/janus", [] in
-  let s = create_session t (Session.make_properties ~server ()) in
-  ignore s;
+  Lwt_result.(
+    let t = create ~log_level:Debug () in
+    let server = Uri.of_string "http://127.0.0.1:8088/janus", [] in
+    create_session t (Session.make_properties ~server ())
+    >>= (Session.attach_plugin ~plugin:"janus.plugin.streaming"))
+  |> Lwt.ignore_result;
   let inject = Js.Unsafe.inject in
   let t, w = Lwt.wait () in
   [| ("callback",

@@ -1,32 +1,61 @@
 open Js_of_ocaml
-open Utils
 
-type js_string = Js.js_string Js.t
+type jsep = < > Js.t
 
-class type t =
-  object
-    method janus : js_string Js.readonly_prop
-    method transaction : js_string Js.readonly_prop
-    method session_id : Js.number Js.t Js.optdef_prop
-    method token : js_string Js.optdef_prop
-    method apisecret : js_string Js.optdef_prop
-  end
+type candidate = < > Js.t
+
+let jsep_to_yojson (jsep : jsep) : Yojson.Safe.json =
+  `String (Js.to_string @@ Json.output jsep)
+
+let jsep_of_yojson (json : Yojson.Safe.json) : (jsep, string) result =
+  match json with
+  | `String s ->
+     (try Ok (Json.unsafe_input (Js.string s))
+      with e -> Error (Printexc.to_string e))
+  | _ -> Error "jsep_of_yojson: bad json"
+
+let candidate_to_yojson (jsep : candidate) : Yojson.Safe.json =
+  `String (Js.to_string @@ Json.output jsep)
+
+let candidate_of_yojson (json : Yojson.Safe.json) : (candidate, string) result =
+  match json with
+  | `String s ->
+     (try Ok (Json.unsafe_input (Js.string s))
+      with e -> Error (Printexc.to_string e))
+  | _ -> Error "candidate_of_yojson: bad json"
+
+type t =
+  { token : string option [@default None]
+  ; apisecret : string option [@default None]
+  ; plugin : string option [@default None]
+  ; session_id : int64 option [@default None]
+  ; handle_id : int64 option [@default None]
+  ; opaque_id : string option [@default None]
+  ; jsep : jsep option [@default None]
+  ; candidate : candidate option [@default None]
+  ; janus : string
+  ; transaction : string
+  } [@@deriving yojson { strict = false }]
 
 let make ?(token : string option)
       ?(apisecret : string option)
+      ?(plugin : string option)
       ?(session_id : int64 option)
+      ?(handle_id : int64 option)
+      ?(opaque_id : string option)
+      ?(jsep : jsep option)
+      ?(candidate : candidate option)
       ~(janus : string)
       ~(transaction : string)
-      () =
-  let (t : t Js.t) =
-    Js.Unsafe.coerce (
-        object%js
-          val janus = Js.string janus
-          val transaction = Js.string transaction
-        end) in
-  Option.iter (fun x -> t##.token := Js.string x) token;
-  Option.iter (fun x -> t##.apisecret := Js.string x) apisecret;
-  Option.iter (fun x ->
-      let v = Js.number_of_float @@ Int64.to_float x in
-      t##.session_id := v) session_id;
-  t
+      () : t =
+  { token
+  ; apisecret
+  ; plugin
+  ; session_id
+  ; handle_id
+  ; opaque_id
+  ; jsep
+  ; candidate
+  ; janus
+  ; transaction
+  }

@@ -37,6 +37,11 @@ module Option = struct
     | None -> None
     | Some x -> Some (f x)
 
+  let flat_map (f : 'a -> 'b option) (x : 'a option) : 'b option =
+    match x with
+    | None -> None
+    | Some x -> f x
+
   let iter (f : 'a -> unit) (x : 'a option) : unit =
     match x with
     | None -> ()
@@ -62,7 +67,18 @@ end = struct
 
 end
 
+module Uri = struct
+  include Uri
+
+  let append_path (uri : t) (s : string) =
+    let path = path uri in
+    with_path uri (Printf.sprintf "%s/%s" path s)
+end
+
 let ( % ) a b c = a (b c)
+
+let array_get a i =
+  Js.Optdef.to_option @@ Js.array_get a i
 
 let to_js_string_array =
   Js.array % Array.of_list % List.map Js.string
