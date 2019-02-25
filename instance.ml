@@ -22,11 +22,11 @@ let detect_tab_close (t : t) : Dom_events.listener =
        if String.equal (Js.to_string @@ Js.typeof x) "function"
        then Some x else None in
   Dom_events.listen Dom_html.window (Dom_events.Typ.make event) (fun _ _ ->
-      t.logs.info (fun m -> m "Closing window");
+      t.logs.info.str "Closing window";
       List.iter (fun (id, (s : Session.t)) ->
           if Session.destroy_on_unload s
           then (
-            t.logs.info (fun m -> m "Destroying session %Ld" id);
+            t.logs.info.str @@ Printf.sprintf "Destroying session %Ld" id;
             Session.destroy ~async_request:false ~notify_destroyed:false s
             |> Lwt.ignore_result))
         t.sessions;
@@ -34,18 +34,8 @@ let detect_tab_close (t : t) : Dom_events.listener =
       true)
 
 let create ?log_level () : t =
-  let src = Logs.Src.create "janus" in
-  Logs.Src.set_level src log_level;
-  Logs.set_reporter @@ Logs_browser.console_reporter ();
-  let (module Logs) = Logs.src_log src in
-  let (logs : logs) =
-    { app = Logs.app
-    ; err = Logs.err
-    ; warn = Logs.warn
-    ; info = Logs.info
-    ; debug = Logs.debug
-    } in
-  logs.info (fun m -> m "Initializing library");
+  let (logs : logs) = make_logs ?log_level () in
+  logs.info.str "Initializing library";
   let t =
     { logs
     ; sessions = []

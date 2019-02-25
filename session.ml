@@ -2,6 +2,7 @@ open Js_of_ocaml
 open Utils
 open Lwt.Infix
 open Types
+open Media_stream
 
 let empty_response = "The response is empty"
 
@@ -12,7 +13,9 @@ type promises =
 
 type properties =
   { server : Uri.t * Uri.t list
-  ; ice_servers : Rtc_peer_connection.ICE.t list
+  ; ice_servers : _RTCIceServer Js.t list
+  ; ice_transport_policy : ice_transport_policy option
+  ; bundle_policy : bundle_policy option
   ; ipv6 : bool
   ; with_credentials : bool
   ; max_poll_events : int
