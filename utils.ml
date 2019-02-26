@@ -101,3 +101,11 @@ let is_webrtc_supported () : bool =
   && test_opt (coerce wnd)##.RTCPeerConnection
   && test_def (coerce nav)##.getUserMedia
   && test_opt (coerce nav)##.getUserMedia
+
+let is_connected (f : unit -> bool) : (unit, string) Lwt_result.t =
+  if not (f ())
+  then (
+    let s = "Is the server down? (connected=false)" in
+    Log.ign_warning s;
+    Lwt_result.fail s)
+  else Lwt_result.return ()

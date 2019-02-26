@@ -176,11 +176,22 @@ class type _RTCPeerConnection =
     (* FIXME can accept multiple streams *)
     method addTrack : mediaStreamTrack Js.t -> mediaStream Js.t -> unit Js.meth
 
-    method close : 'a Js.t Js.meth
+    (** The RTCPeerConnection.close() method closes the current
+        peer connection. *)
+    method close : unit Js.meth
 
     method createAnswer : 'a Js.t Js.meth
 
-    method createDataChannel : 'a Js.t Js.meth
+    (** The createDataChannel() method on the RTCPeerConnection interface
+        creates a new channel over which any kind of data may be transmitted.
+        This can be useful for back-channel content such as images, file
+        transfer, text chat, game update packets, and so forth. *)
+    method createDataChannel : Js.js_string Js.t -> _RTCDataChannel Js.t Js.meth
+
+    (** Same as createDataChannel, but accepts initialization options *)
+    method createDataChannel_init : Js.js_string Js.t ->
+                                    _RTCDataChannelInit Js.t ->
+                                    _RTCDataChannel Js.t Js.meth
 
     method createOffer : 'a Js.t Js.meth
 
@@ -336,6 +347,109 @@ class type _RTCPeerConnection =
 
       (** A DOMString containing the SDP describing the session.*)
       method sdp : Js.js_string Js.t Js.readonly_prop
+    end
+
+  (** The RTCDataChannel interface represents a network channel which can be
+      used for bidirectional peer-to-peer transfers of arbitrary data.
+      Every data channel is associated with an RTCPeerConnection, and each peer
+      connection can have up to a theoretical maximum of 65,534 data channels
+      (the actual limit may vary from browser to browser). *)
+  and _RTCDataChannel =
+    object
+      (* Properties *)
+
+      (** The property binaryType on the RTCDataChannel interface is a DOMString
+          which specifies the type of JavaScript object which should be used to
+          represent binary data received on the RTCDataChannel. Values allowed
+          by the WebSocket.binaryType property are also permitted here: "blob"
+          if Blob objects are being used or "arraybuffer" if ArrayBuffer objects
+          are being used. The default is "blob". *)
+      method binaryType : Js.js_string Js.t Js.prop
+
+      (** The read-only RTCDataChannel property bufferedAmount returns the
+          number of bytes of data currently queued to be sent over the data
+          channel. *)
+      method bufferedAmount : int Js.readonly_prop
+
+      (** The RTCDataChannel property bufferedAmountLowThreshold is used to
+          specify the number of bytes of buffered outgoing data that is
+          considered "low." The default value is 0. *)
+      method bufferedAmountLowtThreshold : int Js.prop
+
+      (** The read-only RTCDataChannel property id returns an ID number
+          (between 0 and 65,534) which uniquely identifies the
+          RTCDataChannel. *)
+      method id : int Js.readonly_prop
+
+      (** The read-only RTCDataChannel property label returns a DOMString
+          containing a name describing the data channel. These labels are not
+          required to be unique. *)
+      method label : Js.js_string Js.t Js.readonly_prop
+
+      (** The read-only RTCDataChannel property maxPacketLifeTime returns
+          the amount of time, in milliseconds, the browser is allowed to take
+          to attempt to transmit a message, as set when the data channel was
+          created, or null. *)
+      method maxPacketLifeTime : int Js.opt Js.readonly_prop
+
+      (** The read-only RTCDataChannel property maxRetransmits returns the
+          maximum number of times the browser should try to retransmit a message
+          before giving up, as set when the data channel was created, or null,
+          which indicates that there is no maximum. *)
+      method maxRetransmits : int Js.opt Js.readonly_prop
+
+      (** The read-only RTCDataChannel property negotiated indicates whether
+          the RTCDataChannel's connection was negotiated by the Web app (true)
+          or by the WebRTC layer (false). The default is false. *)
+      method negotiated : bool Js.t Js.readonly_prop
+
+      (** The read-only RTCDataChannel property ordered indicates whether or
+          not the data channel guarantees in-order delivery of messages;
+          the default is true, which indicates that the data channel is indeed
+          ordered. *)
+      method ordered : bool Js.t Js.readonly_prop
+
+      (** The read-only RTCDataChannel property protocol returns a DOMString
+          containing the name of the subprotocol in use. If no protocol was
+          specified when the data channel was created, then this property's
+          value is "" (the empty string). *)
+      method protocol : Js.js_string Js.t Js.readonly_prop
+
+      (** The read-only RTCDataChannel property readyState returns an enum of
+          type RTCDataChannelState which indicates the state of the data
+          channel's underlying data connection. *)
+      method readyState : Js.js_string Js.t Js.readonly_prop
+
+      (* Methods *)
+
+      (** The RTCDataChannel.close() method closes the RTCDataChannel.
+          Either peer is permitted to call this method to initiate closure
+          of the channel. *)
+      method close : unit Js.meth
+
+      (** The send() method of the RTCDataChannel interface sends data across
+          the data channel to the remote peer. *)
+      method send_blob : #File.blob Js.t -> unit Js.meth
+      method send_string : Js.js_string Js.t -> unit Js.meth
+
+    end
+
+  and _RTCDataChannelInit =
+    object
+      (* See RTCDataChannel for description *)
+
+      method ordered : bool Js.t Js.optdef_prop
+
+      method maxPacketLifeTime : int Js.opt Js.optdef_prop
+
+      method maxRetransmits : int Js.opt Js.optdef_prop
+
+      method protocol : Js.js_string Js.t Js.optdef_prop
+
+      method negotiated : bool Js.t Js.optdef_prop
+
+      method id : int Js.optdef_prop
+
     end
 
   and mediaStream =

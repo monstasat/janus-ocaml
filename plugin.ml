@@ -4,6 +4,8 @@ open Webrtc
 open Adapter
 open Lwt.Infix
 
+let ( >>= ) = Lwt_result.( >>= )
+
 type typ =
   | Audiobridge
   | Echotest
@@ -124,7 +126,7 @@ module Webrtc_stuff = struct
     ; local_sdp : _RTCSessionDescription Js.t option
     ; media_constraints : unit option
     ; pc : _RTCPeerConnection Js.t option
-    ; data_channel : 'a. 'a Js.t option
+    ; data_channel : _RTCDataChannel Js.t option
     ; dtmf_sender : unit option
     ; trickle : bool
     ; ice_done : bool
@@ -182,6 +184,18 @@ module Media = struct
     { device_id : int
     }
 
+  type data =
+    | Bool of bool
+    | Options of data_options
+  and data_options =
+    { ordered : bool option
+    ; max_packet_life_time : int option
+    ; max_retransmits : int option
+    ; protocol : string option
+    ; negotiated : bool option
+    ; id : int option
+    }
+
   type t =
     { audio_send : bool option
     ; audio_recv : bool option
@@ -189,7 +203,7 @@ module Media = struct
     ; video_send : bool option
     ; video_recv : bool option
     ; video : video option
-    ; data : bool option
+    ; data : data option
     ; fail_if_no_video : bool option
     ; fail_if_no_audio : bool option
     ; screen_share_frame_rate : int option
@@ -212,6 +226,7 @@ type t =
   { id : int
   ; server : string
   ; session_id : int
+  ; is_connected : unit -> bool
   ; plugin : string
   ; token : string option
   ; apisecret : string option
@@ -231,8 +246,9 @@ let is_data_enabled ?(media : Media.t option) () : bool =
      false
   | _ ->
      match media with
-     | None | Some { data = None; _ }-> false (* Default *)
-     | Some { data = Some b; _ } -> b
+     | None | Some { data = None; _ } -> false (* Default *)
+     | Some { data = Some Bool x; _ } -> x
+     | Some { data = Some Options _; _ } -> true
 
 let is_audio_send_enabled ?(media : Media.t option) () : bool =
   match media with
@@ -285,8 +301,9 @@ let send_sdp (t : t) : (_RTCSessionDescription Js.t, string) Lwt_result.t =
 let send_message ?(message : 'a Js.t option)
       ?(jsep : _RTCSessionDescription Js.t option)
       (t : t)
-    : (unit, string) Lwt_result.t =
-  (* FIXME check if the session is connected *)
+    : ('a Js.t option, string) Lwt_result.t =
+  is_connected t.is_connected
+  >>= fun () ->
   let (request : Api.Msg.req Js.t) =
     Api.Msg.make_req
       ?token:t.token
@@ -299,22 +316,40 @@ let send_message ?(message : 'a Js.t option)
   Log.ign_debug_f "Sending message to plugin (handle=%d):" t.id;
   Log.ign_debug ~inspect:request "";
   (* TODO add websockets *)
-  Api.http_call ~meth:`POST
+  Api.http_call ~meth:`POST ~body:request
     (Printf.sprintf "%s/%d/%d" t.server t.session_id t.id)
   >|= function
-  | Error e ->
-     let error = Api.error_to_string e in
-     Log.ign_error error;
-     Error error
+  | Error e -> Error (Api.error_to_string e)
   | Ok rsp ->
      Log.ign_debug "Message sent!";
      Log.ign_debug ~inspect:rsp "";
-     Ok ()
+     let ok =
+       [ "ack", (fun _ -> `Ack)
+       ; "success", (fun x ->
+         let (x : Api.Msg.handle_event Js.t) = Js.Unsafe.coerce x in
+         `Data (Js.Optdef.to_option x##.plugindata))
+       ] in
+     match Api.Msg.check_err_map ~ok rsp with
+     | Error e -> Error e
+     | Ok `Ack ->
+        (* The plugin decided to handle the request asynchronously *)
+        Ok None
+     | Ok `Data None ->
+        (* We got a success, must be a synchronous transaction *)
+        Log.ign_warning "Request succeeded, but missing plugindata...";
+        Ok None
+     | Ok `Data Some d ->
+        (* We got a success, must be a synchronous transaction *)
+        let plugin = Js.to_string d##.plugin in
+        Log.ign_info_f "Synchronous transaction successful (%s)" plugin;
+        Log.ign_debug ~inspect:d##.data "";
+        Ok (Some d##.data)
 
 let send_trickle_candidate (t : t)
       (candidate : Api.Msg.candidate Js.t)
     : (unit, string) Lwt_result.t =
-  (* FIXME check the session is connected *)
+  is_connected t.is_connected
+  >>= fun () ->
   let (request : Api.Msg.req Js.t) =
     Api.Msg.make_req
       ?token:t.token
@@ -329,14 +364,14 @@ let send_trickle_candidate (t : t)
     ~body:request
     (Printf.sprintf "%s/%d/%d" t.server t.session_id t.id)
   >|= function
-  | Error e ->
-     let error = Api.error_to_string e in
-     Log.ign_error error;
-     Error error
+  | Error e -> Error (Api.error_to_string e)
   | Ok rsp ->
-     Log.ign_debug "Candidate sent!";
-     Log.ign_debug ~inspect:rsp "";
-     Ok ()
+     match Api.Msg.check_err ~ok:["ack"] rsp with
+     | Error e -> Error e
+     | Ok rsp ->
+        Log.ign_debug "Candidate sent!";
+        Log.ign_debug ~inspect:rsp "";
+        Ok ()
 
 (* TODO implement
 let send_data
@@ -451,7 +486,6 @@ let on_track (t : t) (e : _RTCTrackEvent Js.t) : bool Js.t =
      Js._true
 
 let init_pc (t : t) (pc : _RTCPeerConnection Js.t) : unit =
-  t.webrtc_stuff <- { t.webrtc_stuff with pc = Some pc };
   Log.ign_info_f "Preparing local SDP and gathering candidates (trickle=%b)"
     t.webrtc_stuff.trickle;
   pc##.oniceconnectionstatechange := Dom.handler (on_ice_conn_state_change t);
@@ -481,21 +515,72 @@ let create_pc (t : t) : _RTCPeerConnection Js.t =
     Js.Unsafe.global##.RTCPeerConnection in
   new%js pc_constr pc_config
 
+let init_data_channel (t : t) (dc : _RTCDataChannel Js.t) : unit =
+  let on_message = fun e ->
+    Log.ign_info ~inspect:e##.data "Received message on data channel:";
+    Option.iter (fun f -> f @@ Js.to_string e##.data) t.callbacks.on_data;
+    Js._true in
+  let on_state_change = fun _ ->
+    let state = match t.webrtc_stuff.data_channel with
+      | None -> "null"
+      | Some dc -> Js.to_string dc##.readyState in
+    (* FIXME change callback to on_data_state_change *)
+    if String.equal state "open"
+    then Option.iter (fun f -> f ()) t.callbacks.on_data_open;
+    Js._true in
+  let on_error = fun e ->
+    Log.ign_error ~inspect:e "Got error on data channel:";
+    Option.iter (fun f -> f e) t.callbacks.on_data_error;
+    Js._true in
+  (* FIXME add event handlers to type *)
+  let dc = Js.Unsafe.coerce dc in
+  dc##.onmessage := Dom.handler on_message;
+  dc##.onopen := Dom.handler on_state_change;
+  dc##.onclose := Dom.handler on_state_change;
+  dc##.onerror := Dom.handler on_error
+
+let create_data_channel ~(media : Media.t)
+      (pc : _RTCPeerConnection Js.t) : _RTCDataChannel Js.t =
+  Log.ign_info "Creating data channel"; let options = match media.data with
+    | None | Some Bool _ ->
+       (* Create default options *)
+       let (opts : _RTCDataChannelInit Js.t) = Js.Unsafe.obj [||] in
+       opts##.ordered := Js._false;
+       opts
+    | Some Options { ordered
+                   ; max_packet_life_time = lt
+                   ; max_retransmits
+                   ; protocol
+                   ; negotiated
+                   ; id } ->
+       let (opts : _RTCDataChannelInit Js.t) = Js.Unsafe.obj [||] in
+       Option.(
+         iter (fun x -> opts##.ordered := Js.bool x) ordered;
+         iter (fun x -> opts##.maxPacketLifeTime := Js.some x) lt;
+         iter (fun x -> opts##.maxRetransmits := Js.some x) max_retransmits;
+         iter (fun x -> opts##.protocol := Js.string x) protocol;
+         iter (fun x -> opts##.negotiated := Js.bool x) negotiated;
+         iter (fun x -> opts##.id := x) id);
+       opts in
+  pc##createDataChannel_init (Js.string "JanusDataChannel") options
+
 let streams_done ?(jsep : _RTCSessionDescription Js.t option)
       ?(stream : mediaStream Js.t option)
       (media : Media.t)
       (t : t) =
-  let config = t.webrtc_stuff in
   (* If we still need to create a PeerConnection, let's do that *)
   let (pc : _RTCPeerConnection Js.t) = match t.webrtc_stuff.pc with
     | Some pc -> pc
     | None ->
        let pc = create_pc t in
+       t.webrtc_stuff <- { t.webrtc_stuff with pc = Some pc };
        init_pc t pc;
        pc in
-  begin match config.local_stream, media.update, config.stream_external with
+  begin match t.webrtc_stuff.local_stream,
+              media.update,
+              t.webrtc_stuff.stream_external with
   | None, _, _ | _, false, _ | _, _, true ->
-     t.webrtc_stuff <- { config with local_stream = stream };
+     t.webrtc_stuff <- { t.webrtc_stuff with local_stream = stream };
      begin match stream with
      | None -> ()
      | Some stream ->
@@ -532,31 +617,11 @@ let streams_done ?(jsep : _RTCSessionDescription Js.t option)
      end;
   end;
   (* Any data channel to create? *)
-  begin match is_data_enabled ~media (), t.webrtc_stuff.pc with
-  | true, Some pc ->
-     Log.ign_info "Creating data channel";
-     let on_message = fun e ->
-       Log.ign_info ~inspect:e##.data "Received message on data channel:";
-       Option.iter (fun f -> f @@ Js.to_string e##.data) t.callbacks.on_data;
-       Js._true in
-     let on_state_change = fun _ ->
-       let state = match t.webrtc_stuff.data_channel with
-         | None -> "null"
-         | Some dc -> Js.to_string dc##.readyState in
-       if String.equal state "open"
-       then Option.iter (fun f -> f ()) t.callbacks.on_data_open;
-       Js._true in
-     let on_error = fun e ->
-       Log.ign_error ~inspect:e "Got error on data channel:";
-       Option.iter (fun f -> f e) t.callbacks.on_data_error;
-       Js._true in
-     let dc = pc##createDataChannel in
-     dc##.onmessage := Dom.handler on_message;
-     dc##.onopen := Dom.handler on_state_change;
-     dc##.onclose := Dom.handler on_state_change;
-     dc##.onerror := Dom.handler on_error
-  | _ -> ()
-  end;
+  if is_data_enabled ~media ()
+  then (
+    let dc = create_data_channel ~media pc in
+    t.webrtc_stuff <- { t.webrtc_stuff with data_channel = Some dc};
+    init_data_channel t dc);
   (* If there is a new local stream, let's notify the application *)
   begin match t.webrtc_stuff.local_stream with
   | None -> ()
@@ -564,10 +629,9 @@ let streams_done ?(jsep : _RTCSessionDescription Js.t option)
      Option.iter (fun f -> f stream) t.callbacks.on_local_stream;
   end;
   (* Create offer/answer now *)
-  begin match jsep, t.webrtc_stuff.pc with
-  | None, _ | _, None -> ()
-  | Some jsep, Some pc ->
-     pc##setRemoteDescription jsep
+  begin match jsep with
+  | None -> ()
+  | Some jsep -> pc##setRemoteDescription jsep
   end
 
 let id (t : t) : int =
@@ -615,8 +679,20 @@ let create_offer (t : t) : unit =
 let create_answer (t : t) : unit =
   ignore t
 
-let handle_remote_jsep (t : t) : unit =
-  ignore t
+let handle_remote_jsep (jsep : _RTCSessionDescription Js.t)
+      (t : t) : (unit, string) Lwt_result.t =
+  match t.webrtc_stuff.pc with
+  | None ->
+     let s =
+       "No PeerConnection: \
+        if this is an answer, use create_answer \
+        and not handle_remote_jsep" in
+     Log.ign_warning s;
+     Lwt.return_error s;
+  | Some (pc : _RTCPeerConnection Js.t) ->
+     (* FIXME handle promise *)
+     pc##setRemoteDescription jsep;
+     Lwt.return_ok ()
 
 let dtmf (t : t) : unit =
   ignore t

@@ -183,32 +183,29 @@ module Msg = struct
   let to_string (t : #msg Js.t) : string =
     Js.to_string @@ Json.output t
 
-  let check_err ?(ok = "success") (msg : #msg Js.t) : (msg Js.t, string) result =
-    try
-      match Js.to_string msg##.janus with
-      | "error" ->
-         begin match Js.Optdef.to_option msg##.error with
-         | None ->
-            let s = "Oops: internal error" in
-            Log.ign_error s;
-            Error s
-         | Some (err : err Js.t) ->
-            let code = err##.code in
-            let reason = Js.to_string err##.reason in
-            let s = Printf.sprintf "Oops: %d %s" code reason in
-            Log.ign_error s;
-            Error s
-         end
-      | janus when String.equal janus ok -> Ok (msg :> msg Js.t)
-      | janus ->
-         let s = Printf.sprintf "Unknown response: %s" janus in
-         Log.ign_error s;
-         Error s
-    with
-    | e -> let s = Printf.sprintf "Probably parser error: %s"
-                   @@ Printexc.to_string e in
-           Log.ign_error s;
-           Error s
+  let check_err_map ~(ok : (string * (msg Js.t -> 'a)) list)
+        (msg : #msg Js.t) : ('a, string) result =
+    Printf.(
+      try
+        match Js.to_string msg##.janus with
+        | "error" ->
+           (match Js.Optdef.to_option msg##.error with
+            | None -> Error "Oops: internal error"
+            | Some (err : err Js.t) ->
+               let reason = Js.to_string err##.reason in
+               Error (sprintf "Oops: %d %s" err##.code reason))
+        | janus ->
+           (match List.find_opt (fun (k, _) -> String.equal k janus) ok with
+            | Some (_, f) -> Ok (f (msg :> msg Js.t))
+            | None -> Error (sprintf "Unexpected response: %s" janus))
+      with e -> Error (sprintf "Probably a parser error: %s"
+                       @@ Printexc.to_string e))
+    |> function Error e -> Log.ign_error e; Error e | Ok x -> Ok x
+
+  let check_err ?(ok = ["success"])
+        (msg : #msg Js.t) : (msg Js.t, string) result =
+    let ok = List.map (fun k -> k, (fun x -> x)) ok in
+    check_err_map ~ok msg
 
   let of_frame (frame : 'a Js.opt frame) : ('a Js.t, error) result =
     match frame.code, Js.Opt.to_option frame.content with
