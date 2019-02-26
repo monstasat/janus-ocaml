@@ -12,6 +12,9 @@ let browser_details : browserDetails Js.t =
 let get_browser () : string =
   Js.to_string browser_details##.browser
 
+let get_version () : int =
+  browser_details##.version
+
 let check_browser ?(browser : string option)
       ?(ver_cmp = ( = ))
       ?(ver : int option)

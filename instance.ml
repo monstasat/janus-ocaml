@@ -3,8 +3,7 @@ open Utils
 open Types
 
 type t =
-  { logs : logs
-  ; mutable close_listener : Dom_events.listener option
+  { mutable close_listener : Dom_events.listener option
   ; mutable sessions : (int64 * Session.t) list
   }
 
@@ -33,9 +32,9 @@ let detect_tab_close (t : t) : Dom_events.listener =
       Option.iter (fun f -> Js.Unsafe.fun_call f [||]) old_bf;
       true)
 
-let create ?log_level () : t =
-  let (logs : logs) = make_logs ?log_level () in
-  logs.info.str "Initializing library";
+let create ?(log_level = Logs.Error) () : t =
+  Logs.Section.set_level Logs.section log_level;
+  Logs.ign_log "Initializing library";
   let t =
     { logs
     ; sessions = []
@@ -54,7 +53,7 @@ let create_session (t : t) (props : Session.properties)
   Session.create_session ~on_create ~on_destroy ~logs:t.logs ~props ()
 
 (* FIXME legacy *)
-let init ?log_level () : unit Lwt.t =
+let init ?(log_level : Logs.level option) () : unit Lwt.t =
   ignore log_level;
   Lwt_result.(
     let t = create ~log_level:Debug () in

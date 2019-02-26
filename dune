@@ -3,5 +3,5 @@
   (wrapped     false)
   (private_modules adapter any utils jsobj)
   (synopsis    "jsoo wrapper for janus webrtc lib")
-  (libraries   uri logs logs.browser lwt_react js_of_ocaml js_of_ocaml-lwt yojson)
+  (libraries   uri js_of_ocaml-lwt.logger lwt_react js_of_ocaml js_of_ocaml-lwt yojson)
   (preprocess  (pps js_of_ocaml-ppx ppx_deriving_yojson)))

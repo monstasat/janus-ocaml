@@ -58,7 +58,7 @@ let parse_response (rsp : Js.js_string Js.t frame) =
            ())
 
 let http_api_call ?async ?timeout ?with_credentials
-      ?(body : Yojson.Safe.json option)
+      ?(body : string option)
       ~meth
       (uri : Uri.t)
     : t Lwt.t =
@@ -71,7 +71,7 @@ let http_api_call ?async ?timeout ?with_credentials
     |> List.cons_maybe content_type in
   let contents = match body with
     | None -> None
-    | Some x -> Some (`String (Yojson.Safe.to_string x)) in
+    | Some x -> Some (`String x) in
   let t =
     Lwt_xmlHttpRequest.perform_raw
       ?with_credentials

@@ -123,10 +123,10 @@ let handle_event (ev : Yojson.Safe.json option) : unit Lwt.t =
   Lwt.return_unit
 
 let rec event_handler ?(retries = 0) (t : t) : unit Lwt.t =
-  t.logs.debug (fun m -> m "Long poll...");
+  Logs.ign_debug "Long poll...";
   if not t.connected
   then (
-    t.logs.warn (fun m -> m "Is the server down? (connected=false)");
+    Logs.ign_warning "Is the server down? (connected=false)";
     Lwt.return_unit)
   else Printf.(
     let opt_string_to_query (name : string) = function
@@ -152,14 +152,14 @@ let rec event_handler ?(retries = 0) (t : t) : unit Lwt.t =
     >>= function
     | Ok x -> handle_event x
     | Error e ->
-       t.logs.err (fun m -> m "%s" @@ Api.error_to_string e);
+       Logs.ign_error @@ Api.error_to_string e;
        if retries > 2
        then (
          t.connected <- false;
          Lwt.return_unit)
        else event_handler ~retries:(succ retries) t)
 
-let on_session_created ~(logs : logs)
+let on_session_created
       ~reconnect
       ~on_create
       ~on_destroy
@@ -170,15 +170,15 @@ let on_session_created ~(logs : logs)
   match rsp.data, rsp.session_id with
   | None, None ->
      let s = "No session ID found in response" in
-     logs.err (fun m -> m "%s" s);
+     Logs.ign_error s;
      Lwt_result.fail s
   | Some { id }, None | _, Some id ->
      let (t : t) =
        make ~id ~server ~props ~logs
          ~on_create ~on_destroy () in
      if reconnect
-     then logs.debug (fun m -> m "Claimed session: %Ld" id)
-     else logs.debug (fun m -> m "Created session: %Ld" id);
+     then Logs.ign_debug_f "Claimed session: %Ld" id
+     else Logs.ign_debug_f "Created session: %Ld" id;
      on_create t;
      Lwt.ignore_result @@ event_handler t;
      Lwt_result.return t
@@ -189,7 +189,6 @@ type reconnect =
   }
 
 let rec create_session
-          ~(logs : logs)
           ~(props : properties)
           ~on_create
           ~on_destroy
@@ -321,7 +320,7 @@ let attach_plugin ?(opaque_id : string option)
       ~with_credentials:t.props.with_credentials
       ~body:(Message.to_yojson message)
       (Uri.append_path t.server (Int64.to_string t.id))
-    >|= parse_response ~logs:t.logs
+    >|= parse_response
     >>= function
     | Ok rsp -> on_plugin_created ~logs:t.logs rsp
     | Error e -> Lwt_result.fail e)
