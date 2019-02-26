@@ -1,9 +1,39 @@
 open Js_of_ocaml
 open Utils
-open Types
-open Media_stream
+open Webrtc
 open Adapter
 open Lwt.Infix
+
+type typ =
+  | Audiobridge
+  | Echotest
+  | Recordplay
+  | Sip
+  | Streaming
+  | Textroom
+  | Videocall
+  | Videoroom
+  | Voicemail
+
+type ice_transport_policy =
+  | All
+  | Public
+  | Relay
+
+let ice_transport_policy_to_string : ice_transport_policy -> string = function
+  | All -> "all"
+  | Public -> "public"
+  | Relay -> "relay"
+
+type bundle_policy =
+  | Balanced
+  | Max_compact
+  | Max_bundle
+
+let bundle_policy_to_string : bundle_policy -> string = function
+  | Balanced -> "balanced"
+  | Max_compact -> "max-compact"
+  | Max_bundle -> "max-bundle"
 
 type ice_connection_state =
   | New
@@ -35,21 +65,34 @@ let ice_connection_state_to_string : ice_connection_state -> string = function
   | Closed -> "closed"
   | Unknown -> "unknown"
 
+type webrtc_state =
+  | Up
+  | Down of string
+
+type media_state =
+  | Video of bool
+  | Audio of bool
+
+type slow_link =
+  { nacks : int
+  ; uplink : bool
+  }
+
 type callbacks =
   { on_local_stream : (mediaStream Js.t -> unit) option
   ; on_remote_stream : (mediaStream Js.t -> unit) option
-  ; on_message : unit -> unit
+  ; on_message : 'a. (?jsep:_RTCSessionDescription Js.t -> 'a Js.t -> unit) option
   ; on_jsep : unit -> unit
   ; consent_dialog : bool -> unit
   ; ice_state : (ice_connection_state -> unit) option
-  ; webrtc_state : bool -> unit
-  ; media_state : (string * bool) -> unit
-  ; slow_link : bool -> unit
+  ; webrtc_state : (webrtc_state -> unit) option
+  ; media_state : (media_state -> unit) option
+  ; slow_link : (slow_link -> unit) option
   ; on_data : (string -> unit) option (* FIXME check type *)
   ; on_data_open : (unit -> unit) option
   ; on_data_error : 'a. ('a Js.t -> unit) option (* FIXME add type *)
   ; on_cleanup : unit -> unit
-  ; detached : unit -> unit
+  ; on_detached : (unit -> unit) option
   }
 
 type properties =
@@ -166,9 +209,9 @@ module Media = struct
 end
 
 type t =
-  { id : int64
-  ; server : Uri.t
-  ; session_id : int64
+  { id : int
+  ; server : string
+  ; session_id : int
   ; plugin : string
   ; token : string option
   ; apisecret : string option
@@ -184,7 +227,7 @@ type t =
 let is_data_enabled ?(media : Media.t option) () : bool =
   match get_browser () with
   | "edge" ->
-     Logs.ign_warning "Edge doen't support data channels yet";
+     Log.ign_warning "Edge doen't support data channels yet";
      false
   | _ ->
      match media with
@@ -211,21 +254,21 @@ let is_video_send_enabled ?(media : Media.t option) () : bool =
 
 let send_sdp (t : t) : (_RTCSessionDescription Js.t, string) Lwt_result.t =
   let config = t.webrtc_stuff in
-  Logs.ign_info "Sending offer/answer SDP...";
+  Log.ign_info "Sending offer/answer SDP...";
   match config.local_sdp, t.webrtc_stuff.pc with
   | None, _ ->
      let s = "Local SDP instance is invalid, not sending anything..." in
-     Logs.ign_warning s;
+     Log.ign_warning s;
      Lwt_result.fail s
   | _, None ->
      let s = "Peer Connection is invalid, not sending anything..." in
-     Logs.ign_warning s;
+     Log.ign_warning s;
      Lwt_result.fail s
   | Some _, Some pc ->
      match Js.Opt.to_option pc##.localDescription with
      | None ->
         let s = "localDescription is empty, not sending anything..." in
-        Logs.ign_warning s;
+        Log.ign_warning s;
         Lwt_result.fail s
      | Some (ld : _RTCSessionDescription Js.t)->
         let (my_sdp : _RTCSessionDescription Js.t) =
@@ -239,38 +282,41 @@ let send_sdp (t : t) : (_RTCSessionDescription Js.t, string) Lwt_result.t =
                                               ; sdp_sent = true };
         Lwt_result.return my_sdp
 
-let send_message ?message
+let send_message ?(message : 'a Js.t option)
       ?(jsep : _RTCSessionDescription Js.t option)
       (t : t)
     : (unit, string) Lwt_result.t =
   (* FIXME check if the session is connected *)
-  let (request : Message.t Js.t) =
-    Message.make
+  let (request : Api.Msg.req Js.t) =
+    Api.Msg.make_req
       ?token:t.token
       ?apisecret:t.apisecret
+      ?body:message
       ?jsep
       ~transaction:(String.random 12)
       ~janus:"message"
       () in
-  Logs.ign_debug_f "Sending message to plugin (handle=%Ld):" t.id;
-  Logs.ign_debug ~inspect:request "";
+  Log.ign_debug_f "Sending message to plugin (handle=%d):" t.id;
+  Log.ign_debug ~inspect:request "";
   (* TODO add websockets *)
-  Api.http_api_call ~meth:`POST
-    (Uri.append_path t.server @@ Printf.sprintf "%Ld/%Ld" t.session_id t.id)
-  >|= fun rsp ->
-  match Message.parse_response rsp with
+  Api.http_call ~meth:`POST
+    (Printf.sprintf "%s/%d/%d" t.server t.session_id t.id)
+  >|= function
+  | Error e ->
+     let error = Api.error_to_string e in
+     Log.ign_error error;
+     Error error
   | Ok rsp ->
-     Logs.ign_debug "Message sent!";
-     Logs.ign_debug ~inspect:rsp "";
+     Log.ign_debug "Message sent!";
+     Log.ign_debug ~inspect:rsp "";
      Ok ()
-  | Error e -> Error e
 
 let send_trickle_candidate (t : t)
-      (candidate : Message.candidate Js.t)
+      (candidate : Api.Msg.candidate Js.t)
     : (unit, string) Lwt_result.t =
   (* FIXME check the session is connected *)
-  let (request : Message.t Js.t) =
-    Message.make
+  let (request : Api.Msg.req Js.t) =
+    Api.Msg.make_req
       ?token:t.token
       ?apisecret:t.apisecret
       ~candidate:candidate
@@ -278,17 +324,19 @@ let send_trickle_candidate (t : t)
       ~transaction:(String.random 12)
       () in
   (* TODO add websockets *)
-  Api.http_api_call ~meth:`POST
+  Api.http_call ~meth:`POST
     ~with_credentials:t.with_credentials
-    ~body:(Message.to_json request)
-    (Uri.append_path t.server @@ Printf.sprintf "%Ld/%Ld" t.session_id t.id)
-  >|= fun rsp ->
-  match Message.parse_response ~janus_ok:"ack" rsp with
+    ~body:request
+    (Printf.sprintf "%s/%d/%d" t.server t.session_id t.id)
+  >|= function
+  | Error e ->
+     let error = Api.error_to_string e in
+     Log.ign_error error;
+     Error error
   | Ok rsp ->
-     Logs.ign_debug "Candidate sent!";
-     Logs.ign_debug ~inspect:rsp "";
+     Log.ign_debug "Candidate sent!";
+     Log.ign_debug ~inspect:rsp "";
      Ok ()
-  | Error e -> Error e
 
 (* TODO implement
 let send_data
@@ -308,7 +356,7 @@ let update_audio_stream ~(replace_audio : bool)
   then ()
   else (
     let prefix = if replace_audio then "Replacing" else "Adding" in
-    Logs.ign_info_f ~inspect:track "%s audio track:" prefix;
+    Log.ign_info_f ~inspect:track "%s audio track:" prefix;
     pc##addTrack track stream)
 
 let update_video_stream ~(replace_video : bool)
@@ -320,16 +368,16 @@ let update_video_stream ~(replace_video : bool)
      && check_browser ~browser:"firefox" ()
      && check_browser ~browser:"chrome" ~ver:72 ~ver_cmp:(>=) ()
   then (
-    Logs.ign_info ~inspect:track "Replacing video track:";
+    Log.ign_info ~inspect:track "Replacing video track:";
   )
   else if check_browser ~browser:"firefox" ~ver:59 ~ver_cmp:(>=) ()
   then (
     let prefix = if replace_video then "Replacing" else "Adding" in
-    Logs.ign_info_f ~inspect:track "%s video track:" prefix;
+    Log.ign_info_f ~inspect:track "%s video track:" prefix;
   )
   else (
     let prefix = if replace_video then "Replacing" else "Adding" in
-    Logs.ign_info_f ~inspect:track "%s video track:" prefix;
+    Log.ign_info_f ~inspect:track "%s video track:" prefix;
     pc##addTrack track stream)
 
 let on_ice_conn_state_change (t : t) (_ : #Dom_html.event Js.t) : bool Js.t =
@@ -344,12 +392,13 @@ let on_ice_conn_state_change (t : t) (_ : #Dom_html.event Js.t) : bool Js.t =
   Js._true
 
 let handle_end_of_candidates (t : t) : (unit, string) Lwt_result.t =
-  Logs.ign_info "End of candidates";
+  Log.ign_info "End of candidates";
   t.webrtc_stuff <- { t.webrtc_stuff with ice_done = true };
   if t.webrtc_stuff.trickle
   then
     (* Notify end of candidates *)
-    let candidate = Js.Unsafe.obj [|"completed", Any.of_bool true|] in
+    let (candidate : Api.Msg.candidate Js.t) = Js.Unsafe.obj [||] in
+    candidate##.completed := Js._true;
     send_trickle_candidate t candidate
   else
     (* No trickle, time to send the complete SDP (including all candidates) *)
@@ -364,15 +413,13 @@ let on_ice_candidate (t : t)
     | _, None -> handle_end_of_candidates t
     | "edge", Some c when c##.candidate##indexOf eoc > 0 ->
        handle_end_of_candidates t
-    | _, Some (candidate : _RTCIceCandidate Js.t) ->
+    | _, Some (c : _RTCIceCandidate Js.t) ->
        (* JSON.stringify doesn't work on some WebRTC objects anymore
 				See https://code.google.com/p/chromium/issues/detail?id=467366 *)
-       let candidate =
-         [| "candidate", Any._of candidate##.candidate
-          ; "sdpMid", Any._of candidate##.sdpMid
-          ; "sdpMLineIndex", Any._of candidate##.sdpMLineIndex
-         |]
-         |> Js.Unsafe.obj in
+       let (candidate : Api.Msg.candidate Js.t) = Js.Unsafe.obj [||] in
+       candidate##.candidate := c##.candidate;
+       candidate##.sdpMid := c##.sdpMid;
+       candidate##.sdpMLineIndex := c##.sdpMLineIndex;
        if t.webrtc_stuff.trickle
        then send_trickle_candidate t candidate
        else Lwt.return_ok () in
@@ -381,8 +428,8 @@ let on_ice_candidate (t : t)
   Js._true
 
 let on_track (t : t) (e : _RTCTrackEvent Js.t) : bool Js.t =
-  Logs.ign_info "Handling Remote Track";
-  Logs.ign_debug ~inspect:e "";
+  Log.ign_info "Handling Remote Track";
+  Log.ign_debug ~inspect:e "";
   match Js.to_array e##.streams with
   | [||] -> Js._true
   | arr ->
@@ -391,9 +438,9 @@ let on_track (t : t) (e : _RTCTrackEvent Js.t) : bool Js.t =
      if Js.Optdef.test (Js.Unsafe.coerce e)##.track
         && Js.Optdef.test (Js.Unsafe.coerce e)##.track##.onended
      then (
-       Logs.ign_info ~inspect:e##.track "Adding onended callback to track:";
+       Log.ign_info ~inspect:e##.track "Adding onended callback to track:";
        let onended = fun (e : mediaStreamTrack Dom.event Js.t) ->
-         Logs.ign_info ~inspect:e "Remote track removed:";
+         Log.ign_info ~inspect:e "Remote track removed:";
          match t.webrtc_stuff.remote_stream, Js.Opt.to_option e##.target with
          | None, _ | _, None -> Js._true
          | Some s, Some target ->
@@ -405,7 +452,7 @@ let on_track (t : t) (e : _RTCTrackEvent Js.t) : bool Js.t =
 
 let init_pc (t : t) (pc : _RTCPeerConnection Js.t) : unit =
   t.webrtc_stuff <- { t.webrtc_stuff with pc = Some pc };
-  Logs.ign_info_f "Preparing local SDP and gathering candidates (trickle=%b)"
+  Log.ign_info_f "Preparing local SDP and gathering candidates (trickle=%b)"
     t.webrtc_stuff.trickle;
   pc##.oniceconnectionstatechange := Dom.handler (on_ice_conn_state_change t);
   pc##.onicecandidate := Dom.handler (on_ice_candidate t);
@@ -428,7 +475,7 @@ let create_pc (t : t) : _RTCPeerConnection Js.t =
   then (
     let v = Js.string @@ bundle_policy_to_string Max_bundle in
     pc_config##.bundlePolicy := v);
-  Logs.ign_info "Creating PeerConnection";
+  Log.ign_info "Creating PeerConnection";
   let (pc_constr : (_RTCConfiguration Js.t ->
                     _RTCPeerConnection Js.t) Js.constr) =
     Js.Unsafe.global##.RTCPeerConnection in
@@ -452,10 +499,10 @@ let streams_done ?(jsep : _RTCSessionDescription Js.t option)
      begin match stream with
      | None -> ()
      | Some stream ->
-        Logs.ign_info "Adding local stream";
+        Log.ign_info "Adding local stream";
         let tracks = stream##getTracks in
         let cb = fun (track : mediaStreamTrack Js.t) _ _ ->
-          Logs.ign_info ~inspect:track "Adding local track:";
+          Log.ign_info ~inspect:track "Adding local track:";
           pc##addTrack track stream in
         tracks##forEach (Js.wrap_callback cb)
      end
@@ -487,9 +534,9 @@ let streams_done ?(jsep : _RTCSessionDescription Js.t option)
   (* Any data channel to create? *)
   begin match is_data_enabled ~media (), t.webrtc_stuff.pc with
   | true, Some pc ->
-     Logs.ign_info "Creating data channel";
+     Log.ign_info "Creating data channel";
      let on_message = fun e ->
-       Logs.ign_info ~inspect:e##.data "Received message on data channel:";
+       Log.ign_info ~inspect:e##.data "Received message on data channel:";
        Option.iter (fun f -> f @@ Js.to_string e##.data) t.callbacks.on_data;
        Js._true in
      let on_state_change = fun _ ->
@@ -500,7 +547,7 @@ let streams_done ?(jsep : _RTCSessionDescription Js.t option)
        then Option.iter (fun f -> f ()) t.callbacks.on_data_open;
        Js._true in
      let on_error = fun e ->
-       Logs.ign_error ~inspect:e "Got error on data channel:";
+       Log.ign_error ~inspect:e "Got error on data channel:";
        Option.iter (fun f -> f e) t.callbacks.on_data_error;
        Js._true in
      let dc = pc##createDataChannel in
@@ -523,7 +570,7 @@ let streams_done ?(jsep : _RTCSessionDescription Js.t option)
      pc##setRemoteDescription jsep
   end
 
-let id (t : t) : int64 =
+let id (t : t) : int =
   t.id
 
 let plugin (t : t) : string =
@@ -559,7 +606,7 @@ let send (t : t) : unit =
   ignore t
 
 let send_data (t : t) (text : string) : unit =
-  Logs.ign_info_f "Sending string on data channel: %s" text;
+  Log.ign_info_f "Sending string on data channel: %s" text;
   ignore t
 
 let create_offer (t : t) : unit =

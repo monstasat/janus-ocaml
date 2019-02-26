@@ -1,5 +1,7 @@
 open Js_of_ocaml
 
+let ( % ) a b c = a (b c)
+
 module List = struct
   include List
 
@@ -67,21 +69,27 @@ end = struct
 
 end
 
-module Uri = struct
-  include Uri
+let add_query (uri : string)
+      (query : (string * string list) list) : string =
+  match query with
+  | [] -> uri
+  | q ->
+     List.map (function
+         | k, [] -> k
+         | k, [v] -> Printf.sprintf "%s=%s" k v
+         | k, v -> Printf.sprintf "%s=%s" k @@ String.concat "," v) q
+     |> String.concat "&"
+     |> Printf.sprintf "%s?%s" uri
 
-  let append_path (uri : t) (s : string) =
-    let path = path uri in
-    with_path uri (Printf.sprintf "%s/%s" path s)
-end
-
-let ( % ) a b c = a (b c)
+let cast_list (x : 'a Js.t) : 'a Js.t list option =
+  let array_constr : 'a Js.js_array Js.t Js.constr =
+    Js.Unsafe.global##._Array in
+  if Js.instanceof x array_constr
+  then Some (Array.to_list @@ Js.to_array (Js.Unsafe.coerce x))
+  else None
 
 let array_get a i =
   Js.Optdef.to_option @@ Js.array_get a i
-
-let to_js_string_array =
-  Js.array % Array.of_list % List.map Js.string
 
 let is_webrtc_supported () : bool =
   let test_def = Js.Optdef.test in

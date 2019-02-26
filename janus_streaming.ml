@@ -1,4 +1,28 @@
 open Js_of_ocaml
+open Utils
+
+module Any = struct
+  type t = Js.Unsafe.any
+  let _of (x : 'a) : t = Js.Unsafe.inject x
+  let of_list (f : 'a -> t) (x : 'a list) : t = _of @@ Js.array @@ Array.of_list @@ List.map f x
+  let of_int (x : int) : t = _of x
+  let of_bool (x : bool) : t = _of @@ Js.bool x
+  let of_string (x : string) : t = _of @@ Js.string x
+  let of_option (f : 'a -> 'b) (x : 'a option) : t = _of @@ Js.Optdef.(map (option x) f)
+  let of_string_opt (x : string option) : t = of_option Js.string x
+  let of_int_opt (x : int option) : t = of_option (fun x -> x) x
+  let of_bool_opt (x : bool option) : t = of_option Js.bool x
+end
+
+module Jsobj = struct
+  type t = (string * Any.t) array
+  let empty = [||]
+  let concat = Array.concat
+  let append = Array.append
+  let make = Array.of_list
+  let singleton k v = [|k, v|]
+  let ( @ ) = append
+end
 
 let int_of_number x = int_of_float @@ Js.float_of_number x
 
@@ -6,12 +30,6 @@ let parse_ok_response ok =
   if String.equal (Js.to_string ok) "ok"
   then Ok ()
   else Error "Bad ok response"
-
-module Option = struct
-  let map f = function
-    | None -> None
-    | Some x -> Some (f x)
-end
 
 module Mp_base = struct
 
@@ -452,42 +470,42 @@ let request_to_obj : type a. a request -> Jsobj.t =
   let (request : Jsobj.t) =
     Jsobj.singleton "request" (Any.of_string @@ request_to_string req) in
   let (message : Jsobj.t) =
-    Jsobj.(singleton "message" (Any.of_jsobj (request @ params))) in
+    Jsobj.(singleton "message" (Any._of @@ Js.Unsafe.obj (request @ params))) in
   Jsobj.(request @ message)
 
-let parse_response (type a) response
-      (request : a request)
-    : (a, string) result =
-  let open Janus.Plugin in
-  let plugin_name = "streaming" in
-  let typed_response = data_or_error response in
-  begin match request with
-  (* sync responses *)
-  | List -> parse_sync_response plugin_name Mp_list.of_js_obj typed_response
-  | Info _ -> parse_sync_response plugin_name Mp_info.of_js_obj typed_response
-  | Create _ -> parse_sync_response plugin_name Mp_create.of_js_obj typed_response
-  | Destroy _ -> parse_sync_response plugin_name Mp_destroy.of_js_obj typed_response
-  | Recording _ -> parse_sync_response plugin_name parse_ok_response typed_response
-  | Enable _ -> parse_sync_response plugin_name parse_ok_response typed_response
-  | Disable _ -> parse_sync_response plugin_name parse_ok_response typed_response
-  (* async responses *)
-  | Watch _ -> parse_async_response typed_response
-  | Start -> parse_async_response typed_response
-  | Pause -> parse_async_response typed_response
-  | Stop -> parse_async_response typed_response
-  | Switch _ -> parse_async_response typed_response
-  end
+(* let parse_response (type a) response
+ *       (request : a request)
+ *     : (a, string) result =
+ *   let open Plugin in
+ *   let plugin_name = "streaming" in
+ *   let typed_response = data_or_error response in
+ *   begin match request with
+ *   (\* sync responses *\)
+ *   | List -> parse_sync_response plugin_name Mp_list.of_js_obj typed_response
+ *   | Info _ -> parse_sync_response plugin_name Mp_info.of_js_obj typed_response
+ *   | Create _ -> parse_sync_response plugin_name Mp_create.of_js_obj typed_response
+ *   | Destroy _ -> parse_sync_response plugin_name Mp_destroy.of_js_obj typed_response
+ *   | Recording _ -> parse_sync_response plugin_name parse_ok_response typed_response
+ *   | Enable _ -> parse_sync_response plugin_name parse_ok_response typed_response
+ *   | Disable _ -> parse_sync_response plugin_name parse_ok_response typed_response
+ *   (\* async responses *\)
+ *   | Watch _ -> parse_async_response typed_response
+ *   | Start -> parse_async_response typed_response
+ *   | Pause -> parse_async_response typed_response
+ *   | Stop -> parse_async_response typed_response
+ *   | Switch _ -> parse_async_response typed_response
+ *   end *)
 
-let default_media_props =
-  let open Janus.Plugin in
-  { audio_send = Some false
-  ; audio_recv = None
-  ; audio = None
-  ; video_send = Some false
-  ; video_recv = None
-  ; video = None
-  ; data = None
-  ; fail_if_no_video = None
-  ; fail_if_no_audio = None
-  ; screen_rate = None
-  }
+(* let default_media_props =
+ *   let open Plugin in
+ *   { audio_send = Some false
+ *   ; audio_recv = None
+ *   ; audio = None
+ *   ; video_send = Some false
+ *   ; video_recv = None
+ *   ; video = None
+ *   ; data = None
+ *   ; fail_if_no_video = None
+ *   ; fail_if_no_audio = None
+ *   ; screen_rate = None
+ *   } *)
