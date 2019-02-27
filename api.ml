@@ -80,6 +80,7 @@ module Msg = struct
       (* Required *)
       method janus : Js.js_string Js.t Js.prop
       (* Optional *)
+      method session_id_ : int Js.optdef_prop
       method error : err Js.t Js.optdef_prop
       method transaction : Js.js_string Js.t Js.optdef_prop
       method token : Js.js_string Js.t Js.optdef_prop
@@ -90,9 +91,8 @@ module Msg = struct
     object
       inherit msg
       method plugin : Js.js_string Js.t Js.optdef_prop
-      method opaque_id : Js.js_string Js.t Js.optdef_prop
-      method session_id : int Js.optdef_prop
-      method handle_id : int Js.optdef_prop
+      method opaque_id_ : Js.js_string Js.t Js.optdef_prop
+      method handle_id_ : int Js.optdef_prop
       method jsep : _RTCSessionDescription Js.t Js.optdef_prop
       method body : 'a Js.t Js.optdef_prop
       method candidate : candidate Js.t Js.optdef_prop
@@ -121,8 +121,6 @@ module Msg = struct
   class type webrtc_event_base =
     object
       inherit msg
-      (** The session identifier *)
-      method session_id : int Js.optdef_prop
       (** Unique numeric plugin handle identifier *)
       method sender : int Js.optdef Js.readonly_prop
     end
@@ -172,9 +170,9 @@ module Msg = struct
       iter (fun x -> o##.token := Js.string x) token;
       iter (fun x -> o##.apisecret := Js.string x) apisecret;
       iter (fun x -> o##.plugin := Js.string x) plugin;
-      iter (fun x -> o##.session_id := x) session_id;
-      iter (fun x -> o##.handle_id := x) handle_id;
-      iter (fun x -> o##.opaque_id := Js.string x) opaque_id;
+      iter (fun x -> o##.session_id_ := x) session_id;
+      iter (fun x -> o##.handle_id_ := x) handle_id;
+      iter (fun x -> o##.opaque_id_ := Js.string x) opaque_id;
       iter (fun x -> o##.jsep := x) jsep;
       iter (fun x -> o##.candidate := x) candidate;
       iter (fun x -> o##.body := x) body);
@@ -183,29 +181,28 @@ module Msg = struct
   let to_string (t : #msg Js.t) : string =
     Js.to_string @@ Json.output t
 
-  let check_err_map ~(ok : (string * (msg Js.t -> 'a)) list)
+  let check_msg_map (f : msg Js.t -> string -> 'a option)
         (msg : #msg Js.t) : ('a, string) result =
-    Printf.(
-      try
-        match Js.to_string msg##.janus with
-        | "error" ->
-           (match Js.Optdef.to_option msg##.error with
-            | None -> Error "Oops: internal error"
-            | Some (err : err Js.t) ->
-               let reason = Js.to_string err##.reason in
-               Error (sprintf "Oops: %d %s" err##.code reason))
-        | janus ->
-           (match List.find_opt (fun (k, _) -> String.equal k janus) ok with
-            | Some (_, f) -> Ok (f (msg :> msg Js.t))
-            | None -> Error (sprintf "Unexpected response: %s" janus))
-      with e -> Error (sprintf "Probably a parser error: %s"
-                       @@ Printexc.to_string e))
+    let open Printf in
+    (try
+       match Js.to_string msg##.janus with
+       | "error" ->
+          (match Js.Optdef.to_option msg##.error with
+           | None -> Error "Oops: internal error"
+           | Some (err : err Js.t) ->
+              let reason = Js.to_string err##.reason in
+              Error (sprintf "Oops: %d %s" err##.code reason))
+       | janus ->
+          (match f (msg :> msg Js.t) janus with
+           | Some x -> Ok x
+           | None -> Error (sprintf "Unexpected response: %s" janus))
+     with e ->
+       Error (sprintf "Probably a parser error: %s" @@ Printexc.to_string e))
     |> function Error e -> Log.ign_error e; Error e | Ok x -> Ok x
 
-  let check_err ?(ok = ["success"])
+  let check_msg ?(key = "success")
         (msg : #msg Js.t) : (msg Js.t, string) result =
-    let ok = List.map (fun k -> k, (fun x -> x)) ok in
-    check_err_map ~ok msg
+    check_msg_map (fun m k -> if String.equal k key then Some m else None) msg
 
   let of_frame (frame : 'a Js.opt frame) : ('a Js.t, error) result =
     match frame.code, Js.Opt.to_option frame.content with
@@ -258,6 +255,10 @@ let http_call ?async ?timeout ?with_credentials
       | Some (x : int) ->
          let sleep =
            Lwt_js.sleep @@ (float_of_int x /. 1000.)
-           >|= (make_error ~timeout:x ~message:"Request timed out") in
-         Lwt.choose [t; sleep])
-    (fun exn -> Lwt.return @@ make_error ~message:(Printexc.to_string exn) ())
+           >|= fun () ->
+           Lwt.cancel t;
+           make_error ~timeout:x ~message:"Request timed out" () in
+         Lwt.choose [sleep; t])
+    (function
+     | Lwt.Canceled -> raise Lwt.Canceled
+     | exn -> Lwt.return @@ make_error ~message:(Printexc.to_string exn) ())

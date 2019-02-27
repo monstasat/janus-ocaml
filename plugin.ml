@@ -2,9 +2,7 @@ open Js_of_ocaml
 open Utils
 open Webrtc
 open Adapter
-open Lwt.Infix
-
-let ( >>= ) = Lwt_result.( >>= )
+open Lwt_result.Infix
 
 type typ =
   | Audiobridge
@@ -16,6 +14,19 @@ type typ =
   | Videocall
   | Videoroom
   | Voicemail
+  | Custom of string
+
+let typ_to_string : typ -> string = function
+  | Audiobridge -> "janus.plugin.audiobridge"
+  | Echotest -> "janus.plugin.echotest"
+  | Recordplay -> "janus.plugin.recordplay"
+  | Sip -> "janus.plugin.sip"
+  | Streaming -> "janus.plugin.streaming"
+  | Textroom -> "janus.plugin.textroom"
+  | Videocall -> "janus.plugin.videocall"
+  | Videoroom -> "janus.plugin.videoroom"
+  | Voicemail -> "janus.plugin.voicemail"
+  | Custom s -> s
 
 type ice_transport_policy =
   | All
@@ -78,23 +89,6 @@ type media_state =
 type slow_link =
   { nacks : int
   ; uplink : bool
-  }
-
-type callbacks =
-  { on_local_stream : (mediaStream Js.t -> unit) option
-  ; on_remote_stream : (mediaStream Js.t -> unit) option
-  ; on_message : 'a. (?jsep:_RTCSessionDescription Js.t -> 'a Js.t -> unit) option
-  ; on_jsep : unit -> unit
-  ; consent_dialog : bool -> unit
-  ; ice_state : (ice_connection_state -> unit) option
-  ; webrtc_state : (webrtc_state -> unit) option
-  ; media_state : (media_state -> unit) option
-  ; slow_link : (slow_link -> unit) option
-  ; on_data : (string -> unit) option (* FIXME check type *)
-  ; on_data_open : (unit -> unit) option
-  ; on_data_error : 'a. ('a Js.t -> unit) option (* FIXME add type *)
-  ; on_cleanup : unit -> unit
-  ; on_detached : (unit -> unit) option
   }
 
 type properties =
@@ -224,19 +218,34 @@ end
 
 type t =
   { id : int
+  ; opaque_id : string option
   ; server : string
   ; session_id : int
   ; is_connected : unit -> bool
-  ; plugin : string
+  ; plugin : typ
   ; token : string option
   ; apisecret : string option
   ; with_credentials : bool
   ; ice_servers : _RTCIceServer Js.t list
   ; ice_transport_policy : ice_transport_policy option
   ; bundle_policy : bundle_policy option
-  ; callbacks : callbacks
   ; mutable webrtc_stuff : Webrtc_stuff.t
   ; mutable detached : bool
+  (* Callbacks *)
+  ; on_local_stream : (mediaStream Js.t -> unit) option
+  ; on_remote_stream : (mediaStream Js.t -> unit) option
+  ; on_message : 'a. (?jsep:_RTCSessionDescription Js.t -> 'a Js.t -> unit) option
+  ; on_jsep : (unit -> unit) option
+  ; on_consent_dialog : (bool -> unit) option
+  ; on_ice_state : (ice_connection_state -> unit) option
+  ; on_webrtc_state : (webrtc_state -> unit) option
+  ; on_media_state : (media_state -> unit) option
+  ; on_slow_link : (slow_link -> unit) option
+  ; on_data : (string -> unit) option (* FIXME check type *)
+  ; on_data_open : (unit -> unit) option
+  ; on_data_error : (< > Js.t -> unit) option (* FIXME add type *)
+  ; on_cleanup : (unit -> unit) option
+  ; on_detached : int -> unit
   }
 
 let is_data_enabled ?(media : Media.t option) () : bool =
@@ -302,7 +311,7 @@ let send_message ?(message : 'a Js.t option)
       ?(jsep : _RTCSessionDescription Js.t option)
       (t : t)
     : ('a Js.t option, string) Lwt_result.t =
-  is_connected t.is_connected
+  is_connected_lwt t.is_connected
   >>= fun () ->
   let (request : Api.Msg.req Js.t) =
     Api.Msg.make_req
@@ -316,39 +325,40 @@ let send_message ?(message : 'a Js.t option)
   Log.ign_debug_f "Sending message to plugin (handle=%d):" t.id;
   Log.ign_debug ~inspect:request "";
   (* TODO add websockets *)
-  Api.http_call ~meth:`POST ~body:request
-    (Printf.sprintf "%s/%d/%d" t.server t.session_id t.id)
-  >|= function
-  | Error e -> Error (Api.error_to_string e)
-  | Ok rsp ->
-     Log.ign_debug "Message sent!";
-     Log.ign_debug ~inspect:rsp "";
-     let ok =
-       [ "ack", (fun _ -> `Ack)
-       ; "success", (fun x ->
-         let (x : Api.Msg.handle_event Js.t) = Js.Unsafe.coerce x in
-         `Data (Js.Optdef.to_option x##.plugindata))
-       ] in
-     match Api.Msg.check_err_map ~ok rsp with
-     | Error e -> Error e
-     | Ok `Ack ->
-        (* The plugin decided to handle the request asynchronously *)
-        Ok None
-     | Ok `Data None ->
-        (* We got a success, must be a synchronous transaction *)
-        Log.ign_warning "Request succeeded, but missing plugindata...";
-        Ok None
-     | Ok `Data Some d ->
-        (* We got a success, must be a synchronous transaction *)
-        let plugin = Js.to_string d##.plugin in
-        Log.ign_info_f "Synchronous transaction successful (%s)" plugin;
-        Log.ign_debug ~inspect:d##.data "";
-        Ok (Some d##.data)
+  Lwt.Infix.(
+    Api.http_call ~meth:`POST ~body:request
+      (Printf.sprintf "%s/%d/%d" t.server t.session_id t.id)
+    >|= function
+    | Error e -> Error (Api.error_to_string e)
+    | Ok rsp ->
+       Log.ign_debug "Message sent!";
+       Log.ign_debug ~inspect:rsp "";
+       let f (m : Api.Msg.msg Js.t) = function
+         | "ack" -> Some `Ack
+         | "success" ->
+            let (x : Api.Msg.handle_event Js.t) = Js.Unsafe.coerce m in
+            Some (`Data (Js.Optdef.to_option x##.plugindata))
+         | _ -> None in
+       match Api.Msg.check_msg_map f rsp with
+       | Error e -> Error e
+       | Ok `Ack ->
+          (* The plugin decided to handle the request asynchronously *)
+          Ok None
+       | Ok `Data None ->
+          (* We got a success, must be a synchronous transaction *)
+          Log.ign_warning "Request succeeded, but missing plugindata...";
+          Ok None
+       | Ok `Data Some d ->
+          (* We got a success, must be a synchronous transaction *)
+          let plugin = Js.to_string d##.plugin in
+          Log.ign_info_f "Synchronous transaction successful (%s)" plugin;
+          Log.ign_debug ~inspect:d##.data "";
+          Ok (Some d##.data))
 
 let send_trickle_candidate (t : t)
       (candidate : Api.Msg.candidate Js.t)
     : (unit, string) Lwt_result.t =
-  is_connected t.is_connected
+  is_connected_lwt t.is_connected
   >>= fun () ->
   let (request : Api.Msg.req Js.t) =
     Api.Msg.make_req
@@ -359,19 +369,20 @@ let send_trickle_candidate (t : t)
       ~transaction:(String.random 12)
       () in
   (* TODO add websockets *)
-  Api.http_call ~meth:`POST
-    ~with_credentials:t.with_credentials
-    ~body:request
-    (Printf.sprintf "%s/%d/%d" t.server t.session_id t.id)
-  >|= function
-  | Error e -> Error (Api.error_to_string e)
-  | Ok rsp ->
-     match Api.Msg.check_err ~ok:["ack"] rsp with
-     | Error e -> Error e
-     | Ok rsp ->
-        Log.ign_debug "Candidate sent!";
-        Log.ign_debug ~inspect:rsp "";
-        Ok ()
+  Lwt.Infix.(
+    Api.http_call ~meth:`POST
+      ~with_credentials:t.with_credentials
+      ~body:request
+      (Printf.sprintf "%s/%d/%d" t.server t.session_id t.id)
+    >|= function
+    | Error e -> Error (Api.error_to_string e)
+    | Ok rsp ->
+       match Api.Msg.check_msg ~key:"ack" rsp with
+       | Error e -> Error e
+       | Ok rsp ->
+          Log.ign_debug "Candidate sent!";
+          Log.ign_debug ~inspect:rsp "";
+          Ok ())
 
 (* TODO implement
 let send_data
@@ -422,7 +433,7 @@ let on_ice_conn_state_change (t : t) (_ : #Dom_html.event Js.t) : bool Js.t =
      let (state : ice_connection_state) =
        ice_connection_state_of_string
        @@ Js.to_string pc##.iceConnectionState in
-     Option.iter (fun f -> f state) t.callbacks.ice_state
+     Option.iter (fun f -> f state) t.on_ice_state
   end;
   Js._true
 
@@ -469,7 +480,7 @@ let on_track (t : t) (e : _RTCTrackEvent Js.t) : bool Js.t =
   | [||] -> Js._true
   | arr ->
      let (stream : mediaStream Js.t) = arr.(0) in
-     Option.iter (fun f -> f stream) t.callbacks.on_remote_stream;
+     Option.iter (fun f -> f stream) t.on_remote_stream;
      if Js.Optdef.test (Js.Unsafe.coerce e)##.track
         && Js.Optdef.test (Js.Unsafe.coerce e)##.track##.onended
      then (
@@ -480,7 +491,7 @@ let on_track (t : t) (e : _RTCTrackEvent Js.t) : bool Js.t =
          | None, _ | _, None -> Js._true
          | Some s, Some target ->
             s##removeTrack target;
-            Option.iter (fun f -> f s) t.callbacks.on_remote_stream;
+            Option.iter (fun f -> f s) t.on_remote_stream;
             Js._true in
        e##.track##.onended := Dom.handler onended);
      Js._true
@@ -518,7 +529,7 @@ let create_pc (t : t) : _RTCPeerConnection Js.t =
 let init_data_channel (t : t) (dc : _RTCDataChannel Js.t) : unit =
   let on_message = fun e ->
     Log.ign_info ~inspect:e##.data "Received message on data channel:";
-    Option.iter (fun f -> f @@ Js.to_string e##.data) t.callbacks.on_data;
+    Option.iter (fun f -> f @@ Js.to_string e##.data) t.on_data;
     Js._true in
   let on_state_change = fun _ ->
     let state = match t.webrtc_stuff.data_channel with
@@ -526,11 +537,11 @@ let init_data_channel (t : t) (dc : _RTCDataChannel Js.t) : unit =
       | Some dc -> Js.to_string dc##.readyState in
     (* FIXME change callback to on_data_state_change *)
     if String.equal state "open"
-    then Option.iter (fun f -> f ()) t.callbacks.on_data_open;
+    then Option.iter (fun f -> f ()) t.on_data_open;
     Js._true in
   let on_error = fun e ->
     Log.ign_error ~inspect:e "Got error on data channel:";
-    Option.iter (fun f -> f e) t.callbacks.on_data_error;
+    Option.iter (fun f -> f @@ Js.Unsafe.coerce e) t.on_data_error;
     Js._true in
   (* FIXME add event handlers to type *)
   let dc = Js.Unsafe.coerce dc in
@@ -626,7 +637,7 @@ let streams_done ?(jsep : _RTCSessionDescription Js.t option)
   begin match t.webrtc_stuff.local_stream with
   | None -> ()
   | Some (stream : mediaStream Js.t) ->
-     Option.iter (fun f -> f stream) t.callbacks.on_local_stream;
+     Option.iter (fun f -> f stream) t.on_local_stream;
   end;
   (* Create offer/answer now *)
   begin match jsep with
@@ -637,7 +648,7 @@ let streams_done ?(jsep : _RTCSessionDescription Js.t option)
 let id (t : t) : int =
   t.id
 
-let plugin (t : t) : string =
+let typ (t : t) : typ =
   t.plugin
 
 let volume (t : t) : unit =
@@ -664,9 +675,6 @@ let unmute_video (t : t) : unit =
   ignore t
 
 let bitrate (t : t) : unit =
-  ignore t
-
-let send (t : t) : unit =
   ignore t
 
 let send_data (t : t) (text : string) : unit =

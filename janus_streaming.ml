@@ -469,9 +469,7 @@ let request_to_obj : type a. a request -> Jsobj.t =
     | Switch x -> Mp_switch.to_js_obj x in
   let (request : Jsobj.t) =
     Jsobj.singleton "request" (Any.of_string @@ request_to_string req) in
-  let (message : Jsobj.t) =
-    Jsobj.(singleton "message" (Any._of @@ Js.Unsafe.obj (request @ params))) in
-  Jsobj.(request @ message)
+  Jsobj.(request @ params)
 
 (* let parse_response (type a) response
  *       (request : a request)

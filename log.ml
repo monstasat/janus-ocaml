@@ -1,55 +1,9 @@
 include Lwt_log_js
-open Js_of_ocaml
 
-module Console = struct
-
-  class type t =
-    object
-      method log : 'a. 'a -> unit Js.meth
-      method log_2 : 'a 'b. 'a -> 'b -> unit Js.meth
-
-      method debug : 'a. 'a -> unit Js.meth
-      method debug_2 : 'a 'b. 'a -> 'b -> unit Js.meth
-
-      method info : 'a. 'a -> unit Js.meth
-      method info_2 : 'a 'b. 'a -> 'b -> unit Js.meth
-
-      method warn : 'a. 'a -> unit Js.meth
-      method warn_2 : 'a 'b. 'a -> 'b -> unit Js.meth
-
-      method error : 'a. 'a -> unit Js.meth
-      method error_2 : 'a 'b. 'a -> 'b -> unit Js.meth
-
-    end
-
-  let (console : t Js.t) = Js.Unsafe.global##.console
-
-end
-
-let (logger : logger) =
-  let js_val = Lwt.new_key () in
-  make
-    ~close:(fun _ -> Lwt.return_unit)
-    ~output:(fun section level logs ->
-      let str =
-        Js.string
-          (Printf.sprintf "[%s] %s"
-             (Section.name section)
-             (String.concat "\n" logs))
-      in
-      (match level, Lwt.get js_val with
-       | Debug, None -> Console.console##debug str
-       | Debug, Some v -> Console.console##debug_2 str v
-       | Info, None | Notice, None-> Console.console##info str
-       | Info, Some v | Notice, Some v -> Console.console##info_2 str v
-       | Warning, None -> Console.console##warn str
-       | Warning, Some v -> Console.console##warn_2 str v
-       | Error, None | Fatal, None -> Console.console##error str
-       | Error, Some v | Fatal, Some v -> Console.console##error_2 str v);
-      Lwt.return_unit)
+let logger = Lwt_log_js.console
 
 let (section : Lwt_log_js.section) =
-  Lwt_log_js.Section.make "janus-js"
+  Lwt_log_js.Section.make "janus"
 
 let debug = debug ~logger ~section
 let debug_f = debug_f ~logger ~section

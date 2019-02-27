@@ -88,6 +88,22 @@ let cast_list (x : 'a Js.t) : 'a Js.t list option =
   then Some (Array.to_list @@ Js.to_array (Js.Unsafe.coerce x))
   else None
 
+let default_ice () =
+  let url = "stun:stun.l.google.com:19302" in
+  let (o : Webrtc._RTCIceServer Js.t) = Js.Unsafe.obj [||] in
+  o##.urls := Js.string url;
+  [o]
+
+let notify_error_lwt (t : string Lwt.t) = function
+  | None -> ()
+  | Some f ->
+     Lwt.(
+      ignore_result
+      @@ catch (fun () -> t >|= fun s -> f s)
+           (function
+            | Canceled -> return_unit
+            | exn -> return @@ f @@ Printexc.to_string exn))
+
 let array_get a i =
   Js.Optdef.to_option @@ Js.array_get a i
 
@@ -102,10 +118,14 @@ let is_webrtc_supported () : bool =
   && test_def (coerce nav)##.getUserMedia
   && test_opt (coerce nav)##.getUserMedia
 
-let is_connected (f : unit -> bool) : (unit, string) Lwt_result.t =
-  if not (f ())
-  then (
+let is_webrtc_supported_lwt () : (unit, string) Lwt_result.t =
+  if is_webrtc_supported () then Lwt_result.return () else (
+    let s = "WebRTC is not supported by this browser" in
+    Log.ign_error s;
+    Lwt_result.fail s)
+
+let is_connected_lwt (f : unit -> bool) : (unit, string) Lwt_result.t =
+  if f () then Lwt_result.return () else (
     let s = "Is the server down? (connected=false)" in
     Log.ign_warning s;
     Lwt_result.fail s)
-  else Lwt_result.return ()
