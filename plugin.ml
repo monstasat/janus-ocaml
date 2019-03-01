@@ -118,6 +118,7 @@ module Webrtc_stuff = struct
     ; stream_external : bool
     ; remote_stream : mediaStream Js.t option
     ; local_sdp : _RTCSessionDescription Js.t option
+    ; remote_sdp : Js.js_string Js.t option
     ; media_constraints : unit option
     ; pc : _RTCPeerConnection Js.t option
     ; data_channel : _RTCDataChannel Js.t option
@@ -135,6 +136,7 @@ module Webrtc_stuff = struct
     ; stream_external = false
     ; remote_stream = None
     ; local_sdp = None
+    ; remote_sdp = None
     ; media_constraints = None
     ; pc = None
     ; data_channel = None
@@ -397,9 +399,24 @@ let update_audio_stream ~(replace_audio : bool)
   if replace_audio
      && check_browser ~browser:"firefox" ()
      && check_browser ~browser:"chrome" ~ver:72 ~ver_cmp:(>=) ()
-  then ()
+  then (
+    Log.ign_info ~inspect:track "Replacing audio track:";
+    let rec aux = function
+      | [] -> ()
+      | (sender : _RTCRtpSender Js.t) :: tl ->
+         (match Js.Opt.to_option sender##.track with
+          | None -> ()
+          | Some (track' : mediaStreamTrack Js.t) ->
+             if String.equal "audio" (Js.to_string track'##.kind)
+             then ignore @@ sender##replaceTrack (Js.some track));
+         aux tl in
+    aux (Array.to_list @@ Js.to_array @@ pc##getSenders)
+  )
   else if check_browser ~browser:"firefox" ~ver:59 ~ver_cmp:(>=) ()
-  then ()
+  then (
+  (* Firefox >= 59 uses Transceivers *)
+  (* TODO implement *)
+  )
   else (
     let prefix = if replace_audio then "Replacing" else "Adding" in
     Log.ign_info_f ~inspect:track "%s audio track:" prefix;
@@ -415,6 +432,16 @@ let update_video_stream ~(replace_video : bool)
      && check_browser ~browser:"chrome" ~ver:72 ~ver_cmp:(>=) ()
   then (
     Log.ign_info ~inspect:track "Replacing video track:";
+    let rec aux = function
+      | [] -> ()
+      | (sender : _RTCRtpSender Js.t) :: tl ->
+         (match Js.Opt.to_option sender##.track with
+          | None -> ()
+          | Some (track' : mediaStreamTrack Js.t) ->
+             if String.equal "video" (Js.to_string track'##.kind)
+             then ignore @@ sender##replaceTrack (Js.some track));
+         aux tl in
+    aux (Array.to_list @@ Js.to_array @@ pc##getSenders)
   )
   else if check_browser ~browser:"firefox" ~ver:59 ~ver_cmp:(>=) ()
   then (
@@ -642,7 +669,13 @@ let streams_done ?(jsep : _RTCSessionDescription Js.t option)
   (* Create offer/answer now *)
   begin match jsep with
   | None -> ()
-  | Some jsep -> pc##setRemoteDescription jsep
+  | Some jsep ->
+     let on_ok = fun () ->
+       Log.ign_info "Remote description accepted!";
+       t.webrtc_stuff <- { t.webrtc_stuff with remote_sdp = Some jsep##.sdp } in
+     Promise.Infix.(
+      pc##setRemoteDescription jsep
+      >|| (on_ok, (fun _ -> ())))
   end
 
 let id (t : t) : int =
@@ -699,7 +732,7 @@ let handle_remote_jsep (jsep : _RTCSessionDescription Js.t)
      Lwt.return_error s;
   | Some (pc : _RTCPeerConnection Js.t) ->
      (* FIXME handle promise *)
-     pc##setRemoteDescription jsep;
+     ignore @@ pc##setRemoteDescription jsep;
      Lwt.return_ok ()
 
 let dtmf (t : t) : unit =

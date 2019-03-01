@@ -1,4 +1,5 @@
 open Js_of_ocaml
+open Promise
 
 class type _RTCPeerConnection =
   object
@@ -193,39 +194,214 @@ class type _RTCPeerConnection =
                                     _RTCDataChannelInit Js.t ->
                                     _RTCDataChannel Js.t Js.meth
 
-    method createOffer : 'a Js.t Js.meth
+    (** The createOffer() method of the RTCPeerConnection interface initiates
+        the creation of an SDP offer for the purpose of starting a new WebRTC
+        connection to a remote peer. *)
+    method createOffer : unit -> (_RTCSessionDescription Js.t, exn) promise Js.meth
+    method createOffer_options : _RTCOfferOptions Js.t ->
+                                 (_RTCSessionDescription Js.t, exn) promise Js.meth
 
     method generateCertificate : 'a Js.meth
 
-    method getConfiguration : 'a Js.meth
+    (** The RTCPeerConnection.getConfiguration() method returns an RTCConfiguration
+        object which indicates the current configuration of the RTCPeerConnection
+        on which the method is called. *)
+    method getConfiguration : _RTCConfiguration Js.t Js.meth
 
     method getIdentityAssertion : 'a Js.meth
 
-    method getLocalStreams : 'a Js.meth
+    (** The RTCPeerConnection.getLocalStreams() method returns an array of
+        MediaStream associated with the local end of the connection.
+        The array may be empty. *)
+    method getLocalStreams : mediaStream Js.t Js.js_array Js.t Js.meth
 
     method getReceivers : 'a Js.meth
 
-    method getRemoteStreams : 'a Js.meth
+    (** The RTCPeerConnection.getRemoteStreams() method returns an array of
+        MediaStream associated with the remote end of the connection.
+        The array may be empty. *)
+    method getRemoteStreams : mediaStream Js.t Js.js_array Js.t Js.meth
 
-    method getSenders : 'a Js.meth
+    (** The RTCPeerConnection method getSenders() returns an array of
+        RTCRtpSender objects, each of which represents the RTP sender
+        responsible for transmitting one track's data. *)
+    method getSenders : _RTCRtpSender Js.t Js.js_array Js.t Js.meth
 
+    (* TODO *)
     method getStats : 'a Js.meth
 
-    method getStreamById : 'a Js.meth
+    (** The RTCPeerConnection.getStreamById() method returns the MediaStream
+        with the given id that is associated with local or remote end of the
+        connection. If no stream matches, it returns null. *)
+    method getStreamById : Js.js_string Js.t -> mediaStream Js.t Js.opt Js.meth
 
-    method removeStream : 'a Js.meth
+    (** The RTCPeerConnection.removeStream() method removes a MediaStream as
+        a local source of audio or video. If the negotiation already happened,
+        a new one will be needed for the remote peer to be able to use it.
+        Because this method has been deprecated, you should instead use
+        removeTrack() if your target browser versions have implemented it. *)
+    method removeStream : mediaStream Js.t -> unit Js.meth
 
-    method removeTrack : 'a Js.meth
+    (** The RTCPeerConnection.removeTrack() method tells the local end of the
+        connection to stop sending media from the specified track, without
+        actually removing the corresponding RTCRtpSender from the list of
+        senders as reported by RTCPeerConnection.getSenders(). *)
+    method removeTrack : _RTCRtpSender Js.t -> unit Js.meth
 
-    method setConfiguration : 'a Js.meth
+    (** The RTCPeerConnection.setConfiguration() method sets the current
+        configuration of the RTCPeerConnection based on the values included
+        in the specified RTCConfiguration object. This lets you change the
+        ICE servers used by the connection and which transport policies
+        to use. *)
+    method setConfiguration : _RTCConfiguration Js.t -> unit Js.meth Js.meth
 
-    method setIdentityProvider : 'a Js.meth
+    (** The RTCPeerConnection.setIdentityProvider() method sets the Identity
+        Provider (IdP) to the triplet given in parameter: its name, the protocol
+        used to communicate with it (optional) and an optional username.
+        The IdP will be used only when an assertion is needed. *)
+    method setIdentityProvider : Js.js_string Js.t -> unit Js.meth
+    method setIdentityProvider_protocol : Js.js_string Js.t ->
+                                          Js.js_string Js.t ->
+                                          unit Js.meth
+    method setIdentityProvider_username : Js.js_string Js.t ->
+                                          Js.js_string Js.t ->
+                                          Js.js_string Js.t ->
+                                          unit Js.meth
 
-    method setLocalDescription : _RTCSessionDescription Js.t -> unit Js.meth
+    (** The RTCPeerConnection.setLocalDescription() method changes the local
+        description associated with the connection. This description specifies
+        the properties of the local end of the connection, including the media
+        format. *)
+    method setLocalDescription : _RTCSessionDescription Js.t ->
+                                 (unit, exn) promise Js.meth
 
-    method setRemoteDescription : _RTCSessionDescription Js.t -> unit Js.meth
+
+    (** The RTCPeerConnection.setRemoteDescription() method changes the remote
+        description associated with the connection. This description specifies
+        the properties of the remote end of the connection, including the media
+        format. *)
+    method setRemoteDescription : _RTCSessionDescription Js.t ->
+                                  (unit, exn) promise Js.meth
 
   end
+
+  and _RTCOfferOptions =
+    object
+      (** To restart ICE on an active connection, set this to true.
+          This will cause the returned offer to have different credentials
+          than those already in place. If you then apply the returned offer,
+          ICE will restart. Specify false to keep the same credentials and
+          therefore not restart ICE. The default is false. *)
+      method iceRestart : bool Js.t Js.optdef_prop
+
+    end
+
+  (** The RTCRtpSender interface provides the ability to control and obtain
+      details about how a particular MediaStreamTrack is encoded and sent to
+      a remote peer. With it, you can configure the encoding used for the
+      corresponding track, get information about the device's media
+      capabilities, and so forth. You can also obtain access to an RTCDTMFSender
+      which can be used to send DTMF codes to the remote peer. *)
+  and _RTCRtpSender =
+    object
+
+      (* Properties *)
+
+      (** An RTCDTMFSender which can be used to send DTMF tones using
+          "telephone-event" payloads on the RTP session represented by
+          the RTCRtpSender object. If null, the track and/or the connection
+          doesn't support DTMF. Only audio tracks can support DTMF. *)
+      method dtmf : _RTCDTMFSender Js.t Js.opt Js.readonly_prop
+
+      (* FIXME add type *)
+      (** The transport over which Real-time Transport Control Protocol (RTCP)
+          information is exchanged. This value is null before the
+          RTCDtlsTransport object is created. When bundling is in use, more than
+          one RTCRtpSender can share the same transport, sending all RTP and
+          RTCP information over that one transport. *)
+      method rtcpTransport : 'a Js.t Js.opt Js.readonly_prop
+
+      (** The MediaStreamTrack which is being handled by the RTCRtpSender.
+          If track is null, the RTCRtpSender doesn't transmit anything. *)
+      method track : mediaStreamTrack Js.t Js.opt Js.readonly_prop
+
+      (* FIXME add type *)
+      (** The RTCDtlsTransport over which media data for the track is being
+          transmitted. The data is transmitted using RTP packets. Before the
+          transport is established, this value is null. *)
+      method transport : 'a Js.t Js.opt Js.readonly_prop
+
+      (* Methods *)
+
+      (* FIXME add type *)
+      (** Returns a RTCRtpParameters object describing the current configuration
+          for the encoding and transmission of media on the track. *)
+      method getParameters : 'a Js.t Js.meth
+
+      (* FIXME add type *)
+      (** Returns a Promise which is fulfilled with a RTCStatsReport which
+          provides statistics data for all outbound streams being sent using
+          this RTCRtpSender. *)
+      method getStats : 'a Js.t Js.meth
+
+      (* FIXME add type *)
+      (** Applies changes to parameters which configure how the track is encoded
+          and transmitted to the remote peer. *)
+      method setParameters : 'a Js.t Js.meth
+
+      (** Attempts to replace the track currently being sent by the RTCRtpSender
+          with another track, without performing renegotiation. This method can
+          be used, for example, to toggle between the front- and rear-facing
+          cameras on a device. *)
+      method replaceTrack : mediaStreamTrack Js.t Js.opt ->
+                            (unit, exn) promise Js.meth
+      method replaceTrack_void : (unit, exn) promise Js.meth
+
+    end
+
+  and _RTCDTMFSender =
+    object
+      (* Properties *)
+
+      (** A DOMString which contains the list of DTMF tones currently in the
+          queue to be transmitted (tones which have already been played are no
+          longer included in the string). See toneBuffer for details on the
+          format of the tone buffer. *)
+      method toneBuffer : Js.js_string Js.t Js.readonly_prop
+
+      (* Methods *)
+
+      (** Given a string describing a set of DTMF codes and, optionally,
+          the duration of and inter-tone gap between the tones, insertDTMF()
+          starts sending the specified tones. Calling insertDTMF() replaces
+          any already-pending tones from the toneBuffer. You can abort sending
+          queued tones by specifying an empty string ("") as the set of tones
+          to play. *)
+      method insertDTMF : Js.js_string Js.t -> unit Js.meth
+      method insertDTMF_duration : Js.js_string Js.t -> int -> unit Js.meth
+      method insertDTMF_gap : Js.js_string Js.t -> int -> int -> unit Js.meth
+
+      (* Event handlers *)
+
+      (** The tonechange event is sent to the RTCDTMFSender instance's
+          ontonechange event handler to indicate that a tone has either started
+          or stopped playing. *)
+      method ontonechange
+             : ('b Js.t, _RTCTrackEvent Js.t) Dom_html.event_listener
+                 Js.writeonly_prop
+    end
+
+  (** The RTCDTMFToneChangeEvent interface represents events sent to indicate
+      that DTMF tones have started or finished playing.
+      This interface is used by the tonechange event. *)
+  and _RTCDTMFToneChangeEvent =
+    object
+      inherit [_RTCDTMFSender] Dom.event
+
+      (** A DOMString specifying the tone which has begun playing, or an empty
+          string ("") if the previous tone has finished playing. *)
+      method tone : Js.js_string Js.t Js.readonly_prop
+    end
 
   and _RTCPeerConnectionIceEvent =
     object
