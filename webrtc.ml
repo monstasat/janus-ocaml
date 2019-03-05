@@ -185,25 +185,40 @@ class type _RTCPeerConnection =
         peer connection. *)
     method close : unit Js.meth
 
-    method createAnswer : 'a Js.t Js.meth
+    (** The createOffer() method of the RTCPeerConnection interface initiates
+        the creation of an SDP offer for the purpose of starting a new WebRTC
+        connection to a remote peer. *)
+    method createOffer
+           : _RTCOfferOptions Js.t ->
+             (_RTCSessionDescriptionInit Js.t, exn) promise Js.meth
+    method createOffer_
+           : (_RTCSessionDescriptionInit Js.t, exn) promise Js.meth
+
+    (** The createAnswer() method on the RTCPeerConnection interface creates
+        an SDP answer to an offer received from a remote peer during the
+        offer/answer negotiation of a WebRTC connection. The answer contains
+        information about any media already attached to the session, codecs
+        and options supported by the browser, and any ICE candidates already
+        gathered. The answer is delivered to the returned Promise, and should
+        then be sent to the source of the offer to continue the negotiation
+        process. *)
+    method createAnswer
+           : _RTCAnswerOptions Js.t ->
+             (_RTCSessionDescriptionInit Js.t, exn) promise Js.meth
+    method createAnswer_
+           : (_RTCSessionDescriptionInit Js.t, exn) promise Js.meth
 
     (** The createDataChannel() method on the RTCPeerConnection interface
         creates a new channel over which any kind of data may be transmitted.
         This can be useful for back-channel content such as images, file
         transfer, text chat, game update packets, and so forth. *)
-    method createDataChannel : Js.js_string Js.t -> _RTCDataChannel Js.t Js.meth
-
-    (** Same as createDataChannel, but accepts initialization options *)
-    method createDataChannel_init : Js.js_string Js.t ->
-                                    _RTCDataChannelInit Js.t ->
-                                    _RTCDataChannel Js.t Js.meth
-
-    (** The createOffer() method of the RTCPeerConnection interface initiates
-        the creation of an SDP offer for the purpose of starting a new WebRTC
-        connection to a remote peer. *)
-    method createOffer : (_RTCSessionDescription Js.t, exn) promise Js.meth
-    method createOffer' : _RTCOfferOptions Js.t ->
-                          (_RTCSessionDescription Js.t, exn) promise Js.meth
+    method createDataChannel
+           : Js.js_string Js.t ->
+             _RTCDataChannelInit Js.t ->
+             _RTCDataChannel Js.t Js.meth
+    method createDataChannel_
+           : Js.js_string Js.t ->
+             _RTCDataChannel Js.t Js.meth
 
     method generateCertificate : 'a Js.meth
 
@@ -248,17 +263,17 @@ class type _RTCPeerConnection =
         it. *)
     method addTransceiver
            : Js.js_string Js.t ->
-             _RTCRtpTransceiver Js.t Js.meth
-    method addTransceiver'
-           : Js.js_string Js.t ->
              _RTCRtpTransceiverInit Js.t ->
+             _RTCRtpTransceiver Js.t Js.meth
+    method addTransceiver_void
+           : Js.js_string Js.t ->
              _RTCRtpTransceiver Js.t Js.meth
     method addTransceiver_track
            : mediaStreamTrack Js.t ->
-             _RTCRtpTransceiver Js.t Js.meth
-    method addTransceiver_track'
-           : mediaStreamTrack Js.t ->
              _RTCRtpTransceiverInit Js.t ->
+             _RTCRtpTransceiver Js.t Js.meth
+    method addTransceiver_trackVoid
+           : mediaStreamTrack Js.t ->
              _RTCRtpTransceiver Js.t Js.meth
 
     (* TODO *)
@@ -306,7 +321,7 @@ class type _RTCPeerConnection =
         description associated with the connection. This description specifies
         the properties of the local end of the connection, including the media
         format. *)
-    method setLocalDescription : _RTCSessionDescription Js.t ->
+    method setLocalDescription : _RTCSessionDescriptionInit Js.t ->
                                  (unit, exn) promise Js.meth
 
 
@@ -314,13 +329,37 @@ class type _RTCPeerConnection =
         description associated with the connection. This description specifies
         the properties of the remote end of the connection, including the media
         format. *)
-    method setRemoteDescription : _RTCSessionDescription Js.t ->
+    method setRemoteDescription : _RTCSessionDescriptionInit Js.t ->
                                   (unit, exn) promise Js.meth
 
   end
 
+  and _RTCOfferAnswerOptions =
+    object
+
+      (** Many codecs and systems are capable of detecting "silence" and
+          changing their behavior in this case by doing things such as not
+          transmitting any media. In many cases, such as when dealing with
+          emergency calling or sounds other than spoken voice, it is desirable
+          to be able to turn off this behavior. This option allows the
+          application to provide information about whether it wishes this type
+          of processing enabled or disabled. *)
+      method voiceActivityDetection : bool Js.t Js.optdef_prop
+
+    end
+
+  and _RTCAnswerOptions =
+    object
+
+      inherit _RTCOfferAnswerOptions
+
+    end
+
   and _RTCOfferOptions =
     object
+
+      inherit _RTCOfferAnswerOptions
+
       (** To restart ICE on an active connection, set this to true.
           This will cause the returned offer to have different credentials
           than those already in place. If you then apply the returned offer,
@@ -591,7 +630,7 @@ class type _RTCPeerConnection =
       (** Applies changes to parameters which configure how the track is encoded
           and transmitted to the remote peer. *)
       method setParameters : _RTCRtpParameters Js.t -> unit Js.meth
-      method setParameters' : unit Js.meth
+      method setParameters_void : unit Js.meth
 
       (** Attempts to replace the track currently being sent by the RTCRtpSender
           with another track, without performing renegotiation. This method can
@@ -721,9 +760,8 @@ class type _RTCPeerConnection =
       (** The MediaStreamTrack which has been added to the connection. *)
       method track : mediaStreamTrack Js.t Js.readonly_prop
 
-      (* TODO add type *)
       (** The RTCRtpTransceiver being used by the new track. *)
-      method transceiver : 'a Js.t Js.readonly_prop
+      method transceiver : _RTCRtpTransceiver Js.t Js.readonly_prop
     end
 
   (** The WebRTC API's RTCIceCandidateInit dictionary, which contains the
@@ -840,6 +878,18 @@ class type _RTCPeerConnection =
           a DOMString containing a JSON representation of that configuration in
           the form of a RTCIceCandidateInit object. *)
       method toJSON : Js.js_string Js.t Js.meth
+
+    end
+
+  and _RTCSessionDescriptionInit =
+    object
+
+      (** DOMString sdp *)
+      method _type : Js.js_string Js.t Js.prop
+
+      (** The string representation of the SDP;
+          if type is "rollback", this member is unused. *)
+      method sdp : Js.js_string Js.t Js.optdef_prop
 
     end
 

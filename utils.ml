@@ -116,6 +116,11 @@ let notify_error_lwt (t : string Lwt.t) = function
 let array_get a i =
   Js.Optdef.to_option @@ Js.array_get a i
 
+let exn_to_string : exn -> string = function
+  | Js.Error e -> Js.to_string e##toString
+  | Failure s -> s
+  | exn -> Printexc.to_string exn
+
 let is_webrtc_supported () : bool =
   let test_def = Js.Optdef.test in
   let test_opt = Js.Opt.test in
