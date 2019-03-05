@@ -169,7 +169,11 @@ class type _RTCPeerConnection =
 
     (* Methods *)
 
-    method addIceCandidate : 'a Js.t Js.meth
+    (** When a web site or app using RTCPeerConnection receives a new ICE
+        candidate from the remote peer over its signaling channel, it delivers
+        the newly-received candidate to the browser's ICE agent by calling
+        RTCPeerConnection.addIceCandidate(). *)
+    method addIceCandidate : _RTCIceCandidateInit Js.t -> (unit, exn) promise Js.meth
 
     method addStream : 'a Js.t Js.meth
 
@@ -197,25 +201,32 @@ class type _RTCPeerConnection =
     (** The createOffer() method of the RTCPeerConnection interface initiates
         the creation of an SDP offer for the purpose of starting a new WebRTC
         connection to a remote peer. *)
-    method createOffer : unit -> (_RTCSessionDescription Js.t, exn) promise Js.meth
-    method createOffer_options : _RTCOfferOptions Js.t ->
-                                 (_RTCSessionDescription Js.t, exn) promise Js.meth
+    method createOffer : (_RTCSessionDescription Js.t, exn) promise Js.meth
+    method createOffer' : _RTCOfferOptions Js.t ->
+                          (_RTCSessionDescription Js.t, exn) promise Js.meth
 
     method generateCertificate : 'a Js.meth
 
-    (** The RTCPeerConnection.getConfiguration() method returns an RTCConfiguration
-        object which indicates the current configuration of the RTCPeerConnection
-        on which the method is called. *)
+    (** The RTCPeerConnection.getConfiguration() method returns
+        an RTCConfiguration object which indicates the current configuration
+        of the RTCPeerConnection on which the method is called. *)
     method getConfiguration : _RTCConfiguration Js.t Js.meth
 
-    method getIdentityAssertion : 'a Js.meth
+    (** The RTCPeerConnection.getIdentityAssertion() method initiates
+        the gathering of an identity assertion. This has an effect only if
+        the signalingState is not "closed". *)
+    method getIdentityAssertion : unit Js.meth
 
     (** The RTCPeerConnection.getLocalStreams() method returns an array of
         MediaStream associated with the local end of the connection.
         The array may be empty. *)
     method getLocalStreams : mediaStream Js.t Js.js_array Js.t Js.meth
 
-    method getReceivers : 'a Js.meth
+    (** The RTCPeerConnection.getReceivers() method returns an array of
+        RTCRtpReceiver objects, each of which represents one RTP receiver.
+        Each RTP receiver manages the reception and decoding of data for
+        a MediaStreamTrack on an RTCPeerConnection *)
+    method getReceivers : _RTCRtpReceiver Js.t Js.js_array Js.t Js.meth
 
     (** The RTCPeerConnection.getRemoteStreams() method returns an array of
         MediaStream associated with the remote end of the connection.
@@ -226,6 +237,29 @@ class type _RTCPeerConnection =
         RTCRtpSender objects, each of which represents the RTP sender
         responsible for transmitting one track's data. *)
     method getSenders : _RTCRtpSender Js.t Js.js_array Js.t Js.meth
+
+    (* TODO add description *)
+    method getTransceivers : _RTCRtpTransceiver Js.t Js.js_array Js.t Js.meth
+
+    (** The RTCPeerConnection method addTransceiver() creates a new
+        RTCRtpTransceiver and adds it to the set of transceivers associated
+        with the RTCPeerConnection. Each transceiver represents a bidirectional
+        stream, with both an RTCRtpSender and an RTCRtpReceiver associated with
+        it. *)
+    method addTransceiver
+           : Js.js_string Js.t ->
+             _RTCRtpTransceiver Js.t Js.meth
+    method addTransceiver'
+           : Js.js_string Js.t ->
+             _RTCRtpTransceiverInit Js.t ->
+             _RTCRtpTransceiver Js.t Js.meth
+    method addTransceiver_track
+           : mediaStreamTrack Js.t ->
+             _RTCRtpTransceiver Js.t Js.meth
+    method addTransceiver_track'
+           : mediaStreamTrack Js.t ->
+             _RTCRtpTransceiverInit Js.t ->
+             _RTCRtpTransceiver Js.t Js.meth
 
     (* TODO *)
     method getStats : 'a Js.meth
@@ -294,6 +328,217 @@ class type _RTCPeerConnection =
           therefore not restart ICE. The default is false. *)
       method iceRestart : bool Js.t Js.optdef_prop
 
+      (** A legacy Boolean option which used to control whether or not to offer
+          to the remote peer the opportunity to try to send audio.
+          If this value is false, the remote peer will not be offered to send
+          audio data, even if the local side will be sending audio data.
+          If this value is true, the remote peer will be offered to send audio
+          data, even if the local side will not be sending audio data.
+          The default behavior is to offer to receive audio only if the local
+          side is sending audio, not otherwise. *)
+      method offerToReceiveAudio : bool Js.t Js.optdef_prop
+
+      (** A legacy Boolean option which used to control whether or not to offer
+          to the remote peer the opportunity to try to send video.
+          If this value is false, the remote peer will not be offered to send
+          video data, even if the local side will be sending video data.
+          If this value is true, the remote peer will be offered to send video
+          data, even if the local side will not be sending video data.
+          The default behavior is to offer to receive video only if the local
+          side is sending video, not otherwise. *)
+      method offerToReceiveVideo : bool Js.t Js.optdef_prop
+
+    end
+
+  (** The RTCRtpTransceiverInit dictionary is used when calling the WebRTC
+      function RTCPeerConnection.addTransceiver() to provide configuration
+      options for the new transceiver. *)
+  and _RTCRtpTransceiverInit =
+    object
+
+      (** The new transceiver's preferred directionality.
+          This value is used to initialize the new RTCRtpTransceiver object's
+          RTCRtpTransceiver.direction property. *)
+      method direction : Js.js_string Js.t Js.optdef_prop
+
+      (** A list of encodings to allow when sending RTP media from
+          the RTCRtpSender. Each entry is of type RTCRtpEncodingParameters. *)
+      method sendEncodings
+             : _RTCRtpEncodingParameters Js.t Js.js_array Js.t Js.optdef_prop
+
+      (** A list of MediaStream objects to add to the transceiver's
+          RTCRtpReceiver; when the remote peer's RTCPeerConnection's track event
+          occurs, these are the streams that will be specified by that event. *)
+      method streams : mediaStream Js.t Js.js_array Js.t Js.optdef_prop
+
+    end
+
+  (** An instance of the WebRTC API's RTCRtpEncodingParameters dictionary
+      describes a single configuration of a codec for an RTCRtpSender.
+      It's used in the RTCRtpSendParameters describing the configuration of
+      an RTP sender's encodings; RTCRtpDecodingParameters is used to describe
+      the configuration of an RTP receiver's encodings. *)
+  and _RTCRtpEncodingParameters =
+    object
+
+      (** If true, the described encoding is currently actively being used.
+          That is, for RTP senders, the encoding is currently being used to
+          send data, while for receivers, the encoding is being used to decode
+          received data. The default value is true. *)
+      method active : bool Js.t Js.prop
+
+      (** Indicates the priority of this encoding.
+          It is specified in RTCWEB-TRANSPORT, Section 4. *)
+      method priority : Js.js_string Js.t Js.prop
+
+      (** When describing a codec for an RTCRtpSender, codecPayloadType is a
+          single 8-bit byte (or octet) specifying the codec to use for sending
+          the stream; the value matches one from the owning RTCRtpParameters
+          object's codecs parameter. This value can only be set when creating
+          the transceiver; after that, this value is read only. *)
+      method codecPayloadType : int Js.readonly_prop
+
+      (** Only used for an RTCRtpSender whose kind is audio, this property
+          indicates whether or not to use discontinuous transmission (a feature
+          by which a phone is turned off or the microphone muted automatically
+          in the absence of voice activity).
+          The value is taken from the enumerated string type RTCDtxStatus. *)
+      method dtx : bool Js.t Js.prop
+
+      (** An unsigned long integer indicating the maximum number of bits per
+          second to allow for this encoding. Other parameters may further
+          constrain the bit rate, such as the value of maxFramerate or transport
+          or physical network limitations. *)
+      method maxBitrate : int Js.prop
+
+      (** A double-precision floating-point value specifying the maximum number
+          of frames per second to allow for this encoding. *)
+      method maxFramerate : float Js.prop
+
+      (** An unsigned long integer value indicating the preferred duration of
+          a media packet in milliseconds. This is typically only relevant for
+          audio encodings. The user agent will try to match this as well as it
+          can, but there is no guarantee. *)
+      method ptime : int Js.prop
+
+      (** A DOMString which, if set, specifies an RTP stream ID (RID) to be sent
+          using the RID header extension. This parameter cannot be modified
+          using setParameters().
+          Its value can only be set when the transceiver is first created. *)
+      method rid : Js.js_string Js.t Js.readonly_prop
+
+      (** Only used for senders whose track's kind is video, this is a
+          double-precision floating-point value specifying a factor by which to
+          scale down the video during encoding. The default value, 1.0, means
+          that the sent video's size will be the same as the original.
+          A value of 2.0 scales the video frames down by a factor of 2 in each
+          dimension, resulting in a video 1/4 the size of the original.
+          The value must not be less than 1.0 (you can't use this to scale the
+          video up). *)
+      method scaleResolutionDownBy : float Js.prop
+
+    end
+
+  (** The WebRTC interface RTCRtpTransceiver describes a permanent pairing of
+      an RTCRtpSender and an RTCRtpReceiver, along with some shared state. *)
+  and _RTCRtpTransceiver =
+    object
+
+      (* Properties *)
+
+      (** A string from the enum RTCRtpTransceiverDirection which indicates the
+          transceiver's current directionality, or null if the transceiver is
+          stopped or has never participated in an exchange of offers
+          and answers. *)
+      method currentDirection : Js.js_string Js.t Js.opt Js.readonly_prop
+
+      (** A string from the enum RTCRtpTransceiverDirection which is used to
+          set the transceiver's desired direction. *)
+      method direction : Js.js_string Js.t Js.prop
+
+      (** The media ID of the m-line associated with this transceiver.
+          This association is established, when possible, whenever either
+          a local or remote description is applied. This field is null if
+          neither a local or remote description has been applied, or if its
+          associated m-line is rejected by either a remote offer
+          or any answer. *)
+      method mid : Js.js_string Js.t Js.readonly_prop
+
+      (** The RTCRtpReceiver object that handles receiving and decoding incoming
+          media. *)
+      method receiver : _RTCRtpReceiver Js.t Js.readonly_prop
+
+      (** The RTCRtpSender object responsible for encoding and sending data to
+          the remote peer. *)
+      method sender : _RTCRtpSender Js.t Js.readonly_prop
+
+      (** Indicates whether or not sending and receiving using the paired
+          RTCRtpSender and RTCRtpReceiver has been permanently disabled, either
+          due to SDP offer/answer, or due to a call to stop(). *)
+      method stopped : bool Js.t Js.prop
+
+      (* Methods *)
+
+      (** A list of RTCRtpCodecParameters objects which override the default
+          preferences used by the user agent for the transceiver's codecs. *)
+      method setCodecPreferences
+             : _RTCRtpCodecParameters Js.t Js.js_array Js.t ->
+               unit Js.meth
+
+      (** Permanently stops the RTCRtpTransceiver. The associated sender stops
+          sending data, and the associated receiver likewise stops receiving
+          and decoding incoming data. *)
+      method stop : unit Js.meth
+
+    end
+
+  (** The RTCRtpCodecParameters dictionary, part of the WebRTC API, is used to
+      describe the configuration parameters for a single media codec.
+      In addition to being the type of the RTCRtpParameters.codecs property,
+      it's used when calling RTCRtpTransceiver.setCodecPreferences()
+      to configure a transceiver's codecs before beginning the offer/answer
+      process to establish a WebRTC peer connection. *)
+  and _RTCRtpCodecParameters =
+    object
+
+      (** The RTP payload type used to identify this codec. *)
+      method payloadType : int Js.optdef Js.readonly_prop
+
+      (** The codec's MIME media type and subtype specified as a DOMString
+          of the form "type/subtype".
+          IANA maintains a registry of valid MIME types. *)
+      method mimeType : Js.js_string Js.t Js.optdef Js.readonly_prop
+
+      (** An unsigned long integer value specifying the codec's clock rate
+          in hertz (Hz). The clock rate is the rate at which the codec's RTP
+          timestamp advances. Most codecs have specific values or ranges of
+          values they permit; see the IANA payload format media type registry
+          for details. *)
+      method clockRate : int Js.optdef Js.readonly_prop
+
+      (** An unsigned short integer indicating the number of channels the codec
+          should support. For example, for audio codecs, a value of 1 specifies
+          monaural sound while 2 indicates stereo. *)
+      method channels : int Js.optdef Js.readonly_prop
+
+      (** A DOMString containing the format-specific parameters field from the
+          "a=fmtp" line in the codec's SDP, if one is present; see section 5.8
+          of the IETF specification for JSEP. *)
+      method sdpFmtpLine : Js.js_string Js.t Js.optdef Js.readonly_prop
+
+    end
+
+  (** The RTCRtpReceiver interface of the WebRTC API manages the reception and
+      decoding of data for a MediaStreamTrack on an RTCPeerConnection. *)
+  and _RTCRtpReceiver =
+    object
+
+      (* TODO implement *)
+
+      (** The MediaStreamTrack which is being handled by the RTCRtpSender.
+          If track is null, the RTCRtpSender doesn't transmit anything. *)
+      method track : mediaStreamTrack Js.t Js.opt Js.readonly_prop
+
     end
 
   (** The RTCRtpSender interface provides the ability to control and obtain
@@ -333,10 +578,9 @@ class type _RTCPeerConnection =
 
       (* Methods *)
 
-      (* FIXME add type *)
       (** Returns a RTCRtpParameters object describing the current configuration
           for the encoding and transmission of media on the track. *)
-      method getParameters : 'a Js.t Js.meth
+      method getParameters : _RTCRtpParameters Js.t Js.meth
 
       (* FIXME add type *)
       (** Returns a Promise which is fulfilled with a RTCStatsReport which
@@ -344,10 +588,10 @@ class type _RTCPeerConnection =
           this RTCRtpSender. *)
       method getStats : 'a Js.t Js.meth
 
-      (* FIXME add type *)
       (** Applies changes to parameters which configure how the track is encoded
           and transmitted to the remote peer. *)
-      method setParameters : 'a Js.t Js.meth
+      method setParameters : _RTCRtpParameters Js.t -> unit Js.meth
+      method setParameters' : unit Js.meth
 
       (** Attempts to replace the track currently being sent by the RTCRtpSender
           with another track, without performing renegotiation. This method can
@@ -356,6 +600,56 @@ class type _RTCPeerConnection =
       method replaceTrack : mediaStreamTrack Js.t Js.opt ->
                             (unit, exn) promise Js.meth
       method replaceTrack_void : (unit, exn) promise Js.meth
+
+    end
+
+  and _RTCRtpParameters =
+    object
+
+      (** A sequence containing the codecs that an RTCRtpSender will choose
+          from in order to send media. *)
+      method codecs : _RTCRtpCodecParameters Js.t Js.js_array Js.t Js.prop
+
+      (** When bandwidth is constrained and the RtpSender needs to choose
+          between degrading resolution or degrading framerate,
+          degradationPreference indicates which is preferred. *)
+      method degradationPreference : Js.js_string Js.t Js.prop
+
+      (** A sequence containing parameters for RTP encodings of media. *)
+      method encodings : _RTCRtpEncodingParameters Js.t Js.js_array Js.t Js.prop
+
+      (** A sequence containing parameters for RTP header extensions. *)
+      method headerExtensions
+             : _RTCRtpHeaderExtensionParameters Js.t Js.js_array Js.t Js.prop
+
+      (** Parameters used for RTCP. *)
+      method rtcp : _RTCRtcpParameters Js.t Js.prop
+
+    end
+
+  and _RTCRtpHeaderExtensionParameters =
+    object
+
+      (** Whether the header extension is encryted or not. *)
+      method encrypted : bool Js.t Js.readonly_prop
+
+      (** The value put in the RTP packet to identify the header extension. *)
+      method id : int Js.readonly_prop
+
+      (** The URI of the RTP header extension, as defined in RFC5285. *)
+      method uri : Js.js_string Js.t Js.readonly_prop
+
+    end
+
+  and _RTCRtcpParameters =
+    object
+
+      (** The Canonical Name (CNAME) used by RTCP (e.g. in SDES messages) *)
+      method cname : Js.js_string Js.t Js.readonly_prop
+
+      (** Whether reduced size RTCP [RFC5506] is configured (if true)
+          or compound RTCP as specified in RFC3550 *)
+      method reducedSize : bool Js.t Js.readonly_prop
 
     end
 
@@ -430,6 +724,40 @@ class type _RTCPeerConnection =
       (* TODO add type *)
       (** The RTCRtpTransceiver being used by the new track. *)
       method transceiver : 'a Js.t Js.readonly_prop
+    end
+
+  (** The WebRTC API's RTCIceCandidateInit dictionary, which contains the
+      information needed to fundamentally describe an RTCIceCandidate.
+      RTCIceCandidateInit is used when using new RTCIceCandidate() to create
+      a new ICE candidate object. It's also used as the return value from the
+      RTCIceCandidate.toJSON() method, and can be passed directly into
+      RTCPeerConnection.addIceCandidate() to add a candidate to the peer
+      connection. *)
+  and _RTCIceCandidateInit =
+    object
+
+      (** The ICE candidate-attribute. If the candidate is an indicator that
+          there are no further candidates (rather than representing a new
+          candidate), this is the empty string (""). The default is the empty
+          string. *)
+      method candidate : Js.js_string Js.t Js.optdef_prop
+
+      (** The identification tag of the media stream with which the candidate is
+          associated, or null if there is no associated media stream.
+          The default is null. *)
+      method sdpMid : Js.js_string Js.t Js.opt Js.optdef_prop
+
+      (** The zero-based index of the m-line within the SDP of the media
+          description with which the candidate is associated, or null if
+          no such associated exists. The default is null. *)
+      method sdpMLineIndex : int Js.opt Js.optdef_prop
+
+      (** A DOMString containing a string which uniquely identifies the remote
+          peer. This string is generated by WebRTC at the beginning of the session,
+          and at least 24 bits worth of the string contain random data.
+          The string may be up to 256 characters long. This property has no default
+          value and is not present unless set explicitly. *)
+      method usernameFragment : Js.js_string Js.t Js.optdef_prop
     end
 
   and _RTCIceCandidate =

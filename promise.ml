@@ -37,9 +37,31 @@ let catch_bind ~on_rejected promise =
 let catch_map ~on_rejected promise =
   Js.Unsafe.meth_call promise "catch" [|Js.Unsafe.inject on_rejected|]
 
-let then_final ~on_fulfilled ~on_rejected promise =
+let then_final ~on_fulfilled ~on_rejected promise : unit =
   Js.Unsafe.meth_call promise "then"
     [|Js.Unsafe.inject on_fulfilled; Js.Unsafe.inject on_rejected|]
+
+let to_lwt (p : ('a, exn) promise) : 'a Lwt.t =
+  let t, w = Lwt.task () in
+  let on_fulfilled =
+    Js.wrap_callback
+    @@ (fun x -> Lwt.wakeup w x) in
+  let on_rejected =
+    Js.wrap_callback
+    @@ (fun x -> Lwt.wakeup_exn w x) in
+  then_final ~on_fulfilled ~on_rejected p;
+  t
+
+let to_lwt_result (p : ('a, 'b) promise) : ('a, 'b) result Lwt.t =
+  let t, w = Lwt.task () in
+  let on_fulfilled =
+    Js.wrap_callback
+    @@ (fun x -> Lwt.wakeup w (Ok x)) in
+  let on_rejected =
+    Js.wrap_callback
+    @@ (fun x -> Lwt.wakeup w (Error x)) in
+  then_final ~on_fulfilled ~on_rejected p;
+  t
 
 let all promises =
   let intermediate_promise =

@@ -115,11 +115,12 @@ module Webrtc_stuff = struct
   type t =
     { started : bool
     ; local_stream : mediaStream Js.t option
+    ; candidates : _RTCIceCandidateInit Js.t Js.js_array Js.t
     ; stream_external : bool
     ; remote_stream : mediaStream Js.t option
     ; local_sdp : _RTCSessionDescription Js.t option
-    ; remote_sdp : Js.js_string Js.t option
-    ; media_constraints : unit option
+    ; remote_sdp : _RTCSessionDescription Js.t option
+    ; media_constraints : _RTCOfferOptions Js.t option
     ; pc : _RTCPeerConnection Js.t option
     ; data_channel : _RTCDataChannel Js.t option
     ; dtmf_sender : unit option
@@ -132,6 +133,7 @@ module Webrtc_stuff = struct
 
   let make_empty () : t =
     { started = false
+    ; candidates = new%js Js.array_empty
     ; local_stream = None
     ; stream_external = false
     ; remote_stream = None
@@ -231,7 +233,7 @@ type t =
   ; ice_servers : _RTCIceServer Js.t list
   ; ice_transport_policy : ice_transport_policy option
   ; bundle_policy : bundle_policy option
-  ; mutable webrtc_stuff : Webrtc_stuff.t
+  ; mutable webrtc : Webrtc_stuff.t
   ; mutable detached : bool
   (* Callbacks *)
   ; on_local_stream : (mediaStream Js.t -> unit) option
@@ -270,6 +272,15 @@ let is_audio_send_enabled ?(media : Media.t option) () : bool =
      | _, None -> true (* Default *)
      | _, Some x -> x
 
+let is_audio_recv_enabled ?(media : Media.t option) () : bool =
+  match media with
+  | None -> true (* Default *)
+  | Some (media : Media.t) ->
+     match media.audio, media.audio_recv with
+     | Some Bool false, _ -> false (* Generic audio has precedence *)
+     | _, None -> true (* default *)
+     | _, Some x -> x
+
 let is_video_send_enabled ?(media : Media.t option) () : bool =
   match media with
   | None -> true
@@ -279,10 +290,28 @@ let is_video_send_enabled ?(media : Media.t option) () : bool =
      | _, None -> true
      | _, Some x -> x
 
+let is_video_recv_enabled ?(media : Media.t option) () : bool =
+  match media with
+  | None -> true (* Default *)
+  | Some (media : Media.t) ->
+     match media.video, media.video_recv with
+     | Some Bool false, _ -> false (* Generic video has precedence *)
+     | _, None -> true (* default *)
+     | _, Some x -> x
+
+let munge_sdp_for_simulcasting (sdp : Js.js_string Js.t)
+    : Js.js_string Js.t =
+  (* FIXME implement *)
+  sdp
+
+let exn_to_string : exn -> string = function
+  | Js.Error e -> Js.to_string e##toString
+  | Failure s -> s
+  | exn -> Printexc.to_string exn
+
 let send_sdp (t : t) : (_RTCSessionDescription Js.t, string) Lwt_result.t =
-  let config = t.webrtc_stuff in
   Log.ign_info "Sending offer/answer SDP...";
-  match config.local_sdp, t.webrtc_stuff.pc with
+  match t.webrtc.local_sdp, t.webrtc.pc with
   | None, _ ->
      let s = "Local SDP instance is invalid, not sending anything..." in
      Log.ign_warning s;
@@ -303,10 +332,10 @@ let send_sdp (t : t) : (_RTCSessionDescription Js.t, string) Lwt_result.t =
             val _type = ld##._type
             val sdp = ld##.sdp
           end in
-        if not t.webrtc_stuff.trickle
+        if not t.webrtc.trickle
         then (Js.Unsafe.coerce my_sdp)##.trickle := Js._false;
-        t.webrtc_stuff <- { t.webrtc_stuff with local_sdp = Some my_sdp
-                                              ; sdp_sent = true };
+        t.webrtc <- { t.webrtc with local_sdp = Some my_sdp
+                                  ; sdp_sent = true };
         Lwt_result.return my_sdp
 
 let send_message ?(message : 'a Js.t option)
@@ -454,7 +483,7 @@ let update_video_stream ~(replace_video : bool)
     pc##addTrack track stream)
 
 let on_ice_conn_state_change (t : t) (_ : #Dom_html.event Js.t) : bool Js.t =
-  begin match t.webrtc_stuff.pc with
+  begin match t.webrtc.pc with
   | None -> ()
   | Some (pc : _RTCPeerConnection Js.t) ->
      let (state : ice_connection_state) =
@@ -466,8 +495,8 @@ let on_ice_conn_state_change (t : t) (_ : #Dom_html.event Js.t) : bool Js.t =
 
 let handle_end_of_candidates (t : t) : (unit, string) Lwt_result.t =
   Log.ign_info "End of candidates";
-  t.webrtc_stuff <- { t.webrtc_stuff with ice_done = true };
-  if t.webrtc_stuff.trickle
+  t.webrtc <- { t.webrtc with ice_done = true };
+  if t.webrtc.trickle
   then
     (* Notify end of candidates *)
     let (candidate : Api.Msg.candidate Js.t) = Js.Unsafe.obj [||] in
@@ -493,7 +522,7 @@ let on_ice_candidate (t : t)
        candidate##.candidate := c##.candidate;
        candidate##.sdpMid := c##.sdpMid;
        candidate##.sdpMLineIndex := c##.sdpMLineIndex;
-       if t.webrtc_stuff.trickle
+       if t.webrtc.trickle
        then send_trickle_candidate t candidate
        else Lwt.return_ok () in
   (* XXX what to do with the thread? *)
@@ -514,7 +543,7 @@ let on_track (t : t) (e : _RTCTrackEvent Js.t) : bool Js.t =
        Log.ign_info ~inspect:e##.track "Adding onended callback to track:";
        let onended = fun (e : mediaStreamTrack Dom.event Js.t) ->
          Log.ign_info ~inspect:e "Remote track removed:";
-         match t.webrtc_stuff.remote_stream, Js.Opt.to_option e##.target with
+         match t.webrtc.remote_stream, Js.Opt.to_option e##.target with
          | None, _ | _, None -> Js._true
          | Some s, Some target ->
             s##removeTrack target;
@@ -525,7 +554,7 @@ let on_track (t : t) (e : _RTCTrackEvent Js.t) : bool Js.t =
 
 let init_pc (t : t) (pc : _RTCPeerConnection Js.t) : unit =
   Log.ign_info_f "Preparing local SDP and gathering candidates (trickle=%b)"
-    t.webrtc_stuff.trickle;
+    t.webrtc.trickle;
   pc##.oniceconnectionstatechange := Dom.handler (on_ice_conn_state_change t);
   pc##.onicecandidate := Dom.handler (on_ice_candidate t);
   pc##.ontrack := Dom.handler (on_track t)
@@ -559,7 +588,7 @@ let init_data_channel (t : t) (dc : _RTCDataChannel Js.t) : unit =
     Option.iter (fun f -> f @@ Js.to_string e##.data) t.on_data;
     Js._true in
   let on_state_change = fun _ ->
-    let state = match t.webrtc_stuff.data_channel with
+    let state = match t.webrtc.data_channel with
       | None -> "null"
       | Some dc -> Js.to_string dc##.readyState in
     (* FIXME change callback to on_data_state_change *)
@@ -607,18 +636,18 @@ let streams_done ?(jsep : _RTCSessionDescription Js.t option)
       (media : Media.t)
       (t : t) =
   (* If we still need to create a PeerConnection, let's do that *)
-  let (pc : _RTCPeerConnection Js.t) = match t.webrtc_stuff.pc with
+  let (pc : _RTCPeerConnection Js.t) = match t.webrtc.pc with
     | Some pc -> pc
     | None ->
        let pc = create_pc t in
-       t.webrtc_stuff <- { t.webrtc_stuff with pc = Some pc };
+       t.webrtc <- { t.webrtc with pc = Some pc };
        init_pc t pc;
        pc in
-  begin match t.webrtc_stuff.local_stream,
+  begin match t.webrtc.local_stream,
               media.update,
-              t.webrtc_stuff.stream_external with
+              t.webrtc.stream_external with
   | None, _, _ | _, false, _ | _, _, true ->
-     t.webrtc_stuff <- { t.webrtc_stuff with local_stream = stream };
+     t.webrtc <- { t.webrtc with local_stream = stream };
      begin match stream with
      | None -> ()
      | Some stream ->
@@ -658,10 +687,10 @@ let streams_done ?(jsep : _RTCSessionDescription Js.t option)
   if is_data_enabled ~media ()
   then (
     let dc = create_data_channel ~media pc in
-    t.webrtc_stuff <- { t.webrtc_stuff with data_channel = Some dc};
+    t.webrtc <- { t.webrtc with data_channel = Some dc};
     init_data_channel t dc);
   (* If there is a new local stream, let's notify the application *)
-  begin match t.webrtc_stuff.local_stream with
+  begin match t.webrtc.local_stream with
   | None -> ()
   | Some (stream : mediaStream Js.t) ->
      Option.iter (fun f -> f stream) t.on_local_stream;
@@ -672,7 +701,7 @@ let streams_done ?(jsep : _RTCSessionDescription Js.t option)
   | Some jsep ->
      let on_ok = fun () ->
        Log.ign_info "Remote description accepted!";
-       t.webrtc_stuff <- { t.webrtc_stuff with remote_sdp = Some jsep##.sdp } in
+       t.webrtc <- { t.webrtc with remote_sdp = Some jsep } in
      Promise.Infix.(
       pc##setRemoteDescription jsep
       >|| (on_ok, (fun _ -> ())))
@@ -714,15 +743,169 @@ let send_data (t : t) (text : string) : unit =
   Log.ign_info_f "Sending string on data channel: %s" text;
   ignore t
 
-let create_offer (t : t) : unit =
-  ignore t
+let handle_transceiver ~(recv_en : bool) ~(send_en : bool) ~(need_rm : bool)
+      (transceiver : _RTCRtpTransceiver Js.t option)
+      (pc : _RTCPeerConnection Js.t)
+      (typ : [`Audio | `Video]) =
+  let kind = match typ with
+    | `Audio -> "audio"
+    | `Video -> "video" in
+  match send_en, recv_en, transceiver with
+  | false, false, Some (tr : _RTCRtpTransceiver Js.t) ->
+     (* Track disabled: have we removed it? *)
+     if need_rm then (
+       tr##.direction := Js.string "inactive";
+       Log.ign_info_f ~inspect:tr "Setting %s transceiver to inactive:" kind)
+  | true, true, Some (tr : _RTCRtpTransceiver Js.t) ->
+     tr##.direction := Js.string "sendrecv";
+     Log.ign_info_f ~inspect:tr "Setting %s transceiver to sendrecv:" kind
+  | true, false, Some (tr : _RTCRtpTransceiver Js.t) ->
+     tr##.direction := Js.string "sendonly";
+     Log.ign_info_f ~inspect:tr "Setting %s transceiver to sendonly:" kind
+  | false, true, Some (tr : _RTCRtpTransceiver Js.t) ->
+     tr##.direction := Js.string "recvonly";
+     Log.ign_info_f ~inspect:tr "Setting %s transceiver to recvonly:" kind
+  | false, true, None ->
+     (* In theory, this is the only case where we might
+        not have a transceiver yet *)
+     let (init : _RTCRtpTransceiverInit Js.t) = Js.Unsafe.obj [||] in
+     init##.direction := Js.string "recvonly";
+     let tr = pc##addTransceiver' (Js.string kind) init in
+     Log.ign_info_f ~inspect:tr "Adding recvonly %s transceiver:" kind
+  | _ -> ()
+
+let create_offer ?(ice_restart = false) ?(simulcast = false)
+      (media : Media.t) (t : t)
+    : (_RTCSessionDescription Js.t option, string) Lwt_result.t =
+  t.webrtc.pc
+  |> Option.to_result_lazy (fun () ->
+         "create_offer: RTCPeerConnection is not established")
+  |> Lwt_result.lift
+  >>= fun (pc : _RTCPeerConnection Js.t) ->
+  Log.ign_info_f "Creating offer (iceDone=%b, simulcast=%b)"
+    t.webrtc.ice_done simulcast;
+  let (media_constraints : _RTCOfferOptions Js.t) = Js.Unsafe.obj [||] in
+  let audio_send = is_audio_send_enabled ~media () in
+  let audio_recv = is_audio_recv_enabled ~media () in
+  let video_send = is_video_send_enabled ~media () in
+  let video_recv = is_video_recv_enabled ~media () in
+  if check_browser ~browser:"firefox" ~ver:59 ~ver_cmp:(>=) ()
+  then (
+    (* Firefox >= 59 uses Transceivers *)
+    let transceivers = pc##getTransceivers in
+    let audio_transceiver, video_transceiver =
+      if transceivers##.length <= 0 then None, None else
+        let cb = fun (atr', vtr') (tr : _RTCRtpTransceiver Js.t) _ _ ->
+          let strack = Js.Opt.to_option tr##.sender##.track in
+          let rtrack = Js.Opt.to_option tr##.receiver##.track in
+          let atr = match atr', strack, rtrack with
+            | None, Some s, Some r ->
+               if String.equal "audio" (Js.to_string s##.kind)
+                  && String.equal "audio" (Js.to_string r##.kind)
+               then Some tr else None
+            | _ -> None in
+          let vtr = match atr, vtr', strack, rtrack with
+            | None, None, Some s, Some r ->
+               if String.equal "video" (Js.to_string s##.kind)
+                  && String.equal "video" (Js.to_string r##.kind)
+               then Some tr else None
+            | _ -> None in
+          atr, vtr in
+        transceivers##reduce_init (Js.wrap_callback cb) (None, None) in
+    (* Handle audio (and related changes, if any) *)
+    handle_transceiver
+      ~recv_en:audio_recv
+      ~send_en:audio_send
+      ~need_rm:media.remove_audio
+      audio_transceiver pc `Audio;
+    (* Handle video (and related changes, if any) *)
+    handle_transceiver
+      ~recv_en:video_recv
+      ~send_en:video_send
+      ~need_rm:media.remove_video
+      video_transceiver pc `Video)
+  else (
+    media_constraints##.offerToReceiveAudio := Js.bool audio_recv;
+    media_constraints##.offerToReceiveVideo := Js.bool video_recv;
+  );
+  if ice_restart then media_constraints##.iceRestart := Js._true;
+  Log.ign_debug ~inspect:media_constraints "";
+  (* Check if this is Firefox and we've been asked to do simulcasting *)
+  if video_send && simulcast && check_browser ~browser:"firefox" ()
+  then (
+    Log.ign_info "Enabling simulcasting for Firefox (RID)";
+    let cb = fun (s : _RTCRtpSender Js.t) _ _ ->
+      match Js.Opt.to_option s##.track with
+      | None -> Js._false
+      | Some t -> Js.bool @@ String.equal (Js.to_string t##.kind) "video" in
+    let (sender : _RTCRtpSender Js.t option) =
+      (Js.Unsafe.coerce pc##getSenders)##find (Js.wrap_callback cb)
+      |> Js.Optdef.to_option in
+    match sender with
+    | None -> ()
+    | Some (sender : _RTCRtpSender Js.t) ->
+       let make_enc priority bitrate : _RTCRtpEncodingParameters Js.t =
+         [| "rid", Js.Unsafe.inject @@ Js.string priority
+          ; "active", Js.Unsafe.inject @@ Js._true
+          ; "priority", Js.Unsafe.inject @@ Js.string priority
+          ; "maxBitrate", Js.Unsafe.inject bitrate
+         |]
+         |> Js.Unsafe.obj in
+       let (parameters : _RTCRtpParameters Js.t) = sender##getParameters in
+       let (encodings : _RTCRtpEncodingParameters Js.t Js.js_array Js.t) =
+         [| make_enc "high" 1_000_000
+          ; make_enc "medium" 300_000
+          ; make_enc "low" 100_000
+         |]
+         |> Js.array in
+       parameters##.encodings := encodings;
+       sender##setParameters parameters);
+  Lwt.try_bind (fun () ->
+      Promise.to_lwt @@ pc##createOffer' media_constraints)
+    (fun (offer : _RTCSessionDescription Js.t) ->
+      Log.ign_debug ~inspect:offer "";
+      Log.ign_info "Setting local description";
+      if video_send && simulcast
+      then (
+        (* This SDP munging only works with chrome
+           (Safari STP may support it too) *)
+        if check_browser ~browser:"chrome" ()
+           || check_browser ~browser:"safari" ()
+        then (
+          Log.ign_info "Enabling Simulcasting for Chrome (SDP munging)";
+          let new_sdp = munge_sdp_for_simulcasting offer##.sdp in
+          (Js.Unsafe.coerce offer)##.sdp := new_sdp)
+        else if not (check_browser ~browser:"firefox" ())
+        then Log.ign_warning "simulcast=true, but this is not Chrome \
+                              nor Firefox, ignoring");
+      t.webrtc <- { t.webrtc with local_sdp = Some offer
+                                ; media_constraints = Some media_constraints };
+      Lwt.try_bind (fun () -> Promise.to_lwt @@ pc##setLocalDescription offer)
+        (fun () ->
+          if not t.webrtc.ice_done && not t.webrtc.trickle
+          then (
+            Log.ign_info "Waiting for all candidates...";
+            (* XXX original code do not call success callback here *)
+            Lwt.return_ok None)
+          else (
+            Log.ign_info "Offer ready";
+            (* JSON.stringify doesn't work on some WebRTC objects anymore
+				       See https://code.google.com/p/chromium/issues/detail?id=467366 *)
+            let (jsep : _RTCSessionDescription Js.t) =
+              object%js
+                val _type = offer##._type
+                val sdp = offer##.sdp
+              end in
+            Lwt.return_ok (Some jsep)))
+        (fun e -> Lwt.return_error @@ exn_to_string e))
+    (fun e -> Lwt.return_error @@ exn_to_string e)
 
 let create_answer (t : t) : unit =
   ignore t
 
 let handle_remote_jsep (jsep : _RTCSessionDescription Js.t)
       (t : t) : (unit, string) Lwt_result.t =
-  match t.webrtc_stuff.pc with
+  match t.webrtc.pc with
   | None ->
      let s =
        "No PeerConnection: \
@@ -731,9 +914,29 @@ let handle_remote_jsep (jsep : _RTCSessionDescription Js.t)
      Log.ign_warning s;
      Lwt.return_error s;
   | Some (pc : _RTCPeerConnection Js.t) ->
-     (* FIXME handle promise *)
-     ignore @@ pc##setRemoteDescription jsep;
-     Lwt.return_ok ()
+     Lwt.try_bind (fun () ->
+         Promise.to_lwt @@ pc##setRemoteDescription jsep)
+       (fun () ->
+         Log.ign_info_f "Remote description accepted";
+         t.webrtc <- { t.webrtc with remote_sdp = Some jsep };
+         if t.webrtc.candidates##.length > 0 then (
+           (* Any trickle candidate we cached? *)
+           let cb = fun (c : _RTCIceCandidateInit Js.t) _ _ ->
+             Log.ign_debug ~inspect:c "Adding remote candidate:";
+             let (completed : bool) =
+               Js.Optdef.get (Js.Unsafe.coerce c)##.completed
+                 (fun () -> Js._false)
+               |> Js.to_bool in
+             if completed
+             then ignore @@ pc##addIceCandidate (Js.Unsafe.obj [||])
+             else ignore @@ pc##addIceCandidate c in
+           t.webrtc.candidates##forEach (Js.wrap_callback cb);
+           t.webrtc.candidates##.length := 0);
+         Lwt.return_ok ())
+       (function
+        | Js.Error e -> Lwt.return_error (Js.to_string e##toString)
+        | Failure s -> Lwt.return_error s
+        | e -> Lwt.return_error @@ Printexc.to_string e)
 
 let dtmf (t : t) : unit =
   ignore t

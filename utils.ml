@@ -48,6 +48,15 @@ module Option = struct
     match x with
     | None -> ()
     | Some x -> f x
+
+  let to_result (e : 'e) : 'a option -> ('a, 'e) result = function
+    | Some x -> Ok x
+    | None -> Error e
+
+  let to_result_lazy (f : unit -> 'e) : 'a option -> ('a, 'e) result = function
+    | Some x -> Ok x
+    | None -> Error (f ())
+
 end
 
 module String : sig

@@ -40,6 +40,10 @@ val then_final :
   ('a, 'b) promise ->
   unit
 
+val to_lwt : ('a, exn) promise -> 'a Lwt.t
+
+val to_lwt_result : ('a, 'b) promise -> ('a, 'b) result Lwt.t
+
 val all : (('a, 'b) promise) array -> ('a array, 'b) promise
 
 val race : (('a, 'b) promise) array -> ('a, 'b) promise

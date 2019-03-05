@@ -62,7 +62,34 @@ let handle_event ~(id : int)
       | None -> ()
       | Some _ -> () (* TODO report success when websockets *)
       end
-   | "trickle" -> (* TODO implement *) ()
+   | "trickle" ->
+      (* We got a trickle candidate from Janus *)
+      let (event : Api.Msg.webrtc_event_base Js.t) =
+        Js.Unsafe.coerce event in
+      do_when_sender plugins event##.sender (fun (p : Plugin.t) ->
+          let (candidate : _RTCIceCandidateInit Js.t) =
+            (Js.Unsafe.coerce event)##.candidate in
+          Log.ign_debug_f "Got a trickled candidate on session %d" id;
+          Log.ign_debug ~inspect:candidate "";
+          match p.webrtc.pc, p.webrtc.remote_sdp with
+          | None, _ | _, None ->
+             (* We didn't do setRemoteDescription
+                (trickle got here before the offer?) *)
+             Log.ign_debug "We didn't do setRemoteDescription \
+                            (trickle got here before the offer?), \
+                            caching candidate";
+             ignore @@ p.webrtc.candidates##push candidate;
+             Log.ign_debug ~inspect:p.webrtc.candidates ""
+          | Some pc, Some _ ->
+             Log.ign_debug ~inspect:candidate "Adding remote candidate:";
+             let (completed : bool) =
+               (Js.Unsafe.coerce candidate)##.competed
+               |> (fun x -> Js.Optdef.get x (fun () -> Js._false))
+               |> Js.to_bool in
+             if completed
+             then ignore @@ pc##addIceCandidate (Js.Unsafe.obj [||])
+             else ignore @@ pc##addIceCandidate candidate;
+        )
    | "webrtcup" ->
       (* The PeerConnection with the server is up! Notify this *)
       Log.ign_debug_f "Got a webrtcup on session %d" id;
@@ -315,7 +342,7 @@ let attach_plugin ?(opaque_id : string option)
             ; ice_servers = t.ice_servers
             ; ice_transport_policy = t.ice_transport_policy
             ; bundle_policy = t.bundle_policy
-            ; webrtc_stuff = Plugin.Webrtc_stuff.make_empty ()
+            ; webrtc = Plugin.Webrtc_stuff.make_empty ()
             ; detached = false
             ; on_local_stream
             ; on_remote_stream
