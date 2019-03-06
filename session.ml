@@ -120,8 +120,8 @@ let handle_event ~(id : int)
         Js.Unsafe.coerce event in
       do_when_sender ~warn:false plugins event##.sender (fun (p : Plugin.t) ->
           p.detached <- true;
-          p.on_detached p.id;
-          Plugin.detach p)
+          Option.iter (fun f -> f ()) p.on_detached;
+          Lwt.ignore_result @@ Plugin.detach p)
    | "media" ->
       (* Media started/stopped flowing *)
       Log.ign_debug_f "Got a media event on session %d" id;
@@ -326,9 +326,8 @@ let attach_plugin ?(opaque_id : string option)
           let on_message = match on_message with
             | None -> None
             | Some f -> Some (fun ?jsep m -> f ?jsep (Js.Unsafe.coerce m)) in
-          let on_detached = fun (id : int) ->
-            t.plugins := List.remove_assoc id !(t.plugins);
-            Option.iter (fun f -> f ()) on_detached in
+          let rm_from_session = fun (id : int) ->
+            t.plugins := List.remove_assoc id !(t.plugins) in
           let (p : Plugin.t) =
             { id
             ; opaque_id
@@ -359,6 +358,7 @@ let attach_plugin ?(opaque_id : string option)
             ; on_data_error
             ; on_cleanup
             ; on_detached
+            ; rm_from_session
             } in
           t.plugins := List.set_assoc ~eq:(=) id p !(t.plugins);
           Log.ign_info_f "Created plugin: %d" id;
@@ -403,10 +403,10 @@ let reconnect ({ id
            t.event_loop <- Some event_loop;
            Lwt_result.return ()))
 
-let destroy ?(async_request = true)
+let destroy ?(async = true)
       ?(notify_destroyed = true) (t : t)
     : (unit, string) Lwt_result.t =
-  Log.ign_info_f "destroying session %d (async=%b)" t.id async_request;
+  Log.ign_info_f "destroying session %d (async=%b)" t.id async;
   is_connected_lwt (fun () -> connected t)
   >>= fun () ->
   (* Stop event loop *)
@@ -423,7 +423,7 @@ let destroy ?(async_request = true)
   (* TODO add websockets *)
   Lwt.Infix.(
     Api.http_call ~meth:`POST
-      ~async:async_request
+      ~async
       ~with_credentials:t.with_credentials
       ~body:message
       (Printf.sprintf "%s/%d" t.server t.id)

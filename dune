@@ -1,7 +1,5 @@
 (library
   (name        janus)
-  (wrapped     false)
-  (private_modules adapter utils log plugin_types)
   (synopsis    "jsoo wrapper for janus webrtc lib")
   (libraries   js_of_ocaml js_of_ocaml-lwt js_of_ocaml-lwt.logger)
   (preprocess  (pps js_of_ocaml-ppx ppx_deriving_yojson)))
