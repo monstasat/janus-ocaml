@@ -28,8 +28,7 @@ let send_sdp (t : t) : (_RTCSessionDescriptionInit Js.t, string) Lwt_result.t =
         my_sdp##.sdp := ld##.sdp;
         if not t.webrtc.trickle
         then (Js.Unsafe.coerce my_sdp)##.trickle := Js._false;
-        t.webrtc <- { t.webrtc with local_sdp = Some my_sdp
-                                  ; sdp_sent = true };
+        t.webrtc <- { t.webrtc with local_sdp = Some my_sdp };
         Lwt_result.return my_sdp
 
 let send_trickle_candidate (t : t)
@@ -89,6 +88,7 @@ let handle_end_of_candidates (t : t) : (unit, string) Lwt_result.t =
 let on_ice_candidate (t : t)
       (e : _RTCPeerConnectionIceEvent Js.t) : bool Js.t =
   let eoc = Js.string "endOfCandidates" in
+  Log.ign_debug ~inspect:e "";
   let (t : (unit, string) Lwt_result.t) =
     match get_browser (), Js.Opt.to_option e##.candidate with
     | _, None -> handle_end_of_candidates t
@@ -96,14 +96,13 @@ let on_ice_candidate (t : t)
        handle_end_of_candidates t
     | _, Some (c : _RTCIceCandidate Js.t) ->
        (* JSON.stringify doesn't work on some WebRTC objects anymore
-				See https://code.google.com/p/chromium/issues/detail?id=467366 *)
-       let (candidate : Api.Msg.candidate Js.t) = Js.Unsafe.obj [||] in
-       candidate##.candidate := c##.candidate;
-       candidate##.sdpMid := c##.sdpMid;
-       candidate##.sdpMLineIndex := c##.sdpMLineIndex;
-       if t.webrtc.trickle
-       then send_trickle_candidate t candidate
-       else Lwt.return_ok () in
+				  See https://code.google.com/p/chromium/issues/detail?id=467366 *)
+       if not t.webrtc.trickle then Lwt.return_ok () else (
+         let (candidate : Api.Msg.candidate Js.t) = Js.Unsafe.obj [||] in
+         candidate##.candidate := c##.candidate;
+         candidate##.sdpMid := c##.sdpMid;
+         candidate##.sdpMLineIndex := c##.sdpMLineIndex;
+         send_trickle_candidate t candidate) in
   (* XXX what to do with the thread? *)
   Lwt.ignore_result t;
   Js._true
@@ -132,7 +131,8 @@ let on_track (t : t) (e : _RTCTrackEvent Js.t) : bool Js.t =
      Js._true
 
 let init (t : t) (pc : _RTCPeerConnection Js.t) : unit =
-  Log.ign_info_f "Preparing local SDP and gathering candidates (trickle=%b)"
+  Log.ign_info_f
+    "Preparing local SDP and gathering candidates (trickle=%b)"
     t.webrtc.trickle;
   pc##.oniceconnectionstatechange := Dom.handler (on_ice_conn_state_change t);
   pc##.onicecandidate := Dom.handler (on_ice_candidate t);
@@ -147,16 +147,36 @@ let create (t : t) : _RTCPeerConnection Js.t =
   Option.iter (fun (x : bundle_policy) ->
       let v = Js.string @@ bundle_policy_to_string x in
       pc_config##.bundlePolicy := v) t.bundle_policy;
-  (* For Chrome versions before 72, we force a plan-b semantic *)
-  if check_browser ~browser:"chrome" ~ver:72 ~ver_cmp:(<) ()
-  then (Js.Unsafe.coerce pc_config)##.sdpSemantics := Js.string "plan-b";
+  (* For Chrome versions before 72, we force a plan-b semantic,
+     and unified-plan otherwise *)
+  if check_browser ~browser:"chrome" ()
+  then (
+    let sdp_semantics =
+      if check_browser ~ver:72 ~ver_cmp:(<) ()
+      then "plan-b" else "unified-plan" in
+    (Js.Unsafe.coerce pc_config)##.sdpSemantics := Js.string sdp_semantics);
   (* If this is Edge, enable BUNDLE explicitly *)
   if check_browser ~browser:"edge" ()
   then (
     let v = Js.string @@ bundle_policy_to_string Max_bundle in
     pc_config##.bundlePolicy := v);
+  let pc_constraints = Js.Unsafe.(
+      let dtls = obj [|"DtlsSrtpKeyAgreement", inject Js._true|] in
+      let ipv6 = if not t.ipv6 then None
+                 else obj [|"googIPv6", inject Js._true|] in
+      let optional =
+        List.map obj t.rtc_constraints
+        |> List.cons dtls
+        |> List.cons_maybe ipv6
+        |> Array.of_list
+        |> Js.array in
+      obj [|"optional", inject optional|]) in
   Log.ign_info "Creating PeerConnection";
+  Log.ign_debug ~inspect:pc_constraints "";
   let (pc_constr : (_RTCConfiguration Js.t ->
+                    'a Js.t -> (* XXX constraints (legacy) *)
                     _RTCPeerConnection Js.t) Js.constr) =
     Js.Unsafe.global##.RTCPeerConnection in
-  new%js pc_constr pc_config
+  let pc = new%js pc_constr pc_config pc_constraints in
+  Log.ign_debug ~inspect:pc "";
+  pc

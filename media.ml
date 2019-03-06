@@ -1,26 +1,69 @@
 open Adapter
 
+type dir =
+  { send : bool
+  ; recv : bool
+  }
+
+type upd = Add | Remove | Replace
+
+type common_src =
+  [ `Bool of bool
+  | `Dir of dir
+  ]
+
 type video =
-  | Bool of bool
-  | Resolution of ([`Lowres | `Stdres | `Hires] * [`Wide | `Square ])
-  | Screen
-  | Device of video_device
+  [ common_src
+  | `Resolution of resolution
+  | `Screen of int option (* screenshare frame rate *)
+  | `Window of int option (* screenshare frame rate *)
+  | `Device of video_device
+  ]
+and resolution =
+  [ `Low
+  | `Low_wide
+  | `SD
+  | `SD_wide
+  | `HD
+  | `FullHD
+  | `UHD
+  ]
 and video_device =
   { device_id : int
   ; width : int
   ; height : int
   }
 
+let resolution_to_video_size : resolution -> int * int = function
+  | `Low -> 320, 240 (* Small resolution, 4:3 *)
+  | `Low_wide -> 320, 180 (* Small resolution, 16:9 *)
+  | `SD -> 640, 480 (* Normal resolution, 4:3 *)
+  | `SD_wide -> 640, 360 (* Normal resolution, 16:9 *)
+  | `HD -> 1280, 720 (* High (HD) resolution is only 16:9 *)
+  | `FullHD -> 1920, 1080 (* Full HD resolution is only 16:9 *)
+  | `UHD -> 3840, 2160 (* 4K resolution is only 16:9 *)
+
 type audio =
-  | Bool of bool
-  | Device of audio_device
+  [ common_src
+  | `Device of audio_device
+  ]
 and audio_device =
   { device_id : int
   }
 
+type track =
+  { fail_if_not_available : bool
+  ; update : upd option
+  ; typ : track_type
+  }
+and track_type =
+  | Video of video
+  | Audio of audio
+
 type data =
-  | Bool of bool
-  | Options of data_options
+  [ `Bool of bool
+  | `Options of data_options
+  ]
 and data_options =
   { ordered : bool option
   ; max_packet_life_time : int option
@@ -30,28 +73,24 @@ and data_options =
   ; id : int option
   }
 
-type t =
-  { audio_send : bool option
-  ; audio_recv : bool option
-  ; audio : audio option
-  ; video_send : bool option
-  ; video_recv : bool option
-  ; video : video option
-  ; data : data option
-  ; fail_if_no_video : bool option
-  ; fail_if_no_audio : bool option
-  ; screen_share_frame_rate : int option
+let make_audio ?(fail_if_not_available = false) ?(update : upd option)
+      (src : audio) : track =
+  { fail_if_not_available
+  ; update
+  ; typ = Audio src
+  }
 
-  ; update : bool
-  ; add_video : bool
-  ; keep_video : bool
-  ; remove_video : bool
-  ; replace_video : bool
-  ; add_audio : bool
-  ; keep_audio : bool
-  ; remove_audio : bool
-  ; replace_audio : bool
-  ; add_data : bool
+let make_video ?(fail_if_not_available = false) ?(update : upd option)
+      (src : video) : track =
+  { fail_if_not_available
+  ; update
+  ; typ = Video src
+  }
+
+type t =
+  { audio : track
+  ; video : track
+  ; data : data
   }
 
 let is_data_enabled ?(media : t option) () : bool =
@@ -61,42 +100,25 @@ let is_data_enabled ?(media : t option) () : bool =
      false
   | _ ->
      match media with
-     | None | Some { data = None; _ } -> false (* Default *)
-     | Some { data = Some Bool x; _ } -> x
-     | Some { data = Some Options _; _ } -> true
+     | None -> false
+     | Some (media : t) ->
+        match media.data with
+        | `Bool x -> x
+        | `Options _ -> true
 
-let is_audio_send_enabled ?(media : t option) () : bool =
-  match media with
-  | None -> true (* Default *)
-  | Some (media : t) ->
-     match media.audio, media.audio_send with
-     | Some Bool false, _ -> false (* Generic audio has precedence *)
-     | _, None -> true (* Default *)
-     | _, Some x -> x
+let is_track_send_enabled (track : track) : bool =
+  match track.typ with
+  | Video `Bool x | Audio `Bool x -> x
+  | Video `Dir x | Audio `Dir x -> x.send
+  | _ -> true
 
-let is_audio_recv_enabled ?(media : t option) () : bool =
-  match media with
-  | None -> true (* Default *)
-  | Some (media : t) ->
-     match media.audio, media.audio_recv with
-     | Some Bool false, _ -> false (* Generic audio has precedence *)
-     | _, None -> true (* default *)
-     | _, Some x -> x
+let is_track_recv_enabled (track : track) : bool =
+  match track.typ with
+  | Video `Bool x | Audio `Bool x -> x
+  | Video `Dir x | Audio `Dir x -> x.recv
+  | _ -> true
 
-let is_video_send_enabled ?(media : t option) () : bool =
-  match media with
-  | None -> true
-  | Some (media : t) ->
-     match media.video, media.video_send with
-     | Some Bool false, _ -> false
-     | _, None -> true
-     | _, Some x -> x
-
-let is_video_recv_enabled ?(media : t option) () : bool =
-  match media with
-  | None -> true (* Default *)
-  | Some (media : t) ->
-     match media.video, media.video_recv with
-     | Some Bool false, _ -> false (* Generic video has precedence *)
-     | _, None -> true (* default *)
-     | _, Some x -> x
+let should_remove_track (track : track) : bool =
+  match track.update with
+  | Some Remove -> true
+  | None | Some _ -> false

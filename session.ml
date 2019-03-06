@@ -188,7 +188,7 @@ let handle_event ~(id : int)
              | None -> Log.ign_debug "No provided notification callback"
              | Some f ->
                 Log.ign_debug "Notifying application";
-                f ?jsep data)
+                f ?jsep data p)
    | "timeout" ->
       (* FIXME close websockets *)
       Log.ign_error_f "Timeout on session %d" id;
@@ -279,10 +279,10 @@ let connected (t : t) : bool =
 
 let attach_plugin ?(opaque_id : string option)
       ?(token : string option)
+      ?(rtc_constraints = [])
       ?on_local_stream
       ?on_remote_stream
       ?on_message
-      ?on_jsep
       ?on_consent_dialog
       ?on_ice_state
       ?on_webrtc_state
@@ -338,6 +338,8 @@ let attach_plugin ?(opaque_id : string option)
             ; plugin = typ
             ; token
             ; apisecret = t.apisecret
+            ; ipv6 = t.ipv6
+            ; rtc_constraints
             ; with_credentials = t.with_credentials
             ; ice_servers = t.ice_servers
             ; ice_transport_policy = t.ice_transport_policy
@@ -347,7 +349,6 @@ let attach_plugin ?(opaque_id : string option)
             ; on_local_stream
             ; on_remote_stream
             ; on_message
-            ; on_jsep
             ; on_consent_dialog
             ; on_ice_state
             ; on_webrtc_state

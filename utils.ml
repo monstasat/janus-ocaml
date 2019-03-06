@@ -24,7 +24,32 @@ module List = struct
     | Some x -> x :: l
 end
 
+module Result = struct
+
+  module Infix = struct
+
+    let ( >>= ) r f = match r with
+      | Error e -> Error e
+      | Ok x -> f x
+
+    let ( >|= ) r f = match r with
+      | Error e -> Error e
+      | Ok x -> Ok (f x)
+
+  end
+
+end
+
 module Option = struct
+
+  let to_string (f : 'a -> string) : 'a option -> string = function
+    | None -> "None"
+    | Some x -> f x
+
+  let equal ~(eq : 'a -> 'a -> bool) (a : 'a option) (b : 'a option) : bool =
+    match a, b with
+    | None, None | None, Some _ | Some _, None -> false
+    | Some a, Some b -> eq a b
 
   let is_some : 'a option -> bool = function
     | None -> false

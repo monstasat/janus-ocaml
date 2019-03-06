@@ -31,17 +31,17 @@ let create ~(media : Media.t)
       (pc : _RTCPeerConnection Js.t) : _RTCDataChannel Js.t =
   Log.ign_info "Creating data channel";
   let options = match media.data with
-    | None | Some Bool _ ->
+    | `Bool _ ->
        (* Create default options *)
        let (opts : _RTCDataChannelInit Js.t) = Js.Unsafe.obj [||] in
        opts##.ordered := Js._false;
        opts
-    | Some Options { ordered
-                   ; max_packet_life_time = lt
-                   ; max_retransmits
-                   ; protocol
-                   ; negotiated
-                   ; id } ->
+    | `Options { ordered
+              ; max_packet_life_time = lt
+              ; max_retransmits
+              ; protocol
+              ; negotiated
+              ; id } ->
        let (opts : _RTCDataChannelInit Js.t) = Js.Unsafe.obj [||] in
        Option.(
          iter (fun x -> opts##.ordered := Js.bool x) ordered;

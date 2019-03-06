@@ -122,7 +122,6 @@ module Webrtc_stuff = struct
     ; dtmf_sender : unit option
     ; trickle : bool
     ; ice_done : bool
-    ; sdp_sent : bool
     ; volume : volume
     ; bitrate : bitrate
     }
@@ -140,7 +139,6 @@ module Webrtc_stuff = struct
     ; dtmf_sender = None
     ; trickle = true
     ; ice_done = false
-    ; sdp_sent = false
     ; volume =
         { value = None
         ; timer = None
@@ -166,7 +164,9 @@ type t =
   ; plugin : typ
   ; token : string option
   ; apisecret : string option
+  ; ipv6 : bool
   ; with_credentials : bool
+  ; rtc_constraints : (string * Js.Unsafe.any) array list
   ; ice_servers : _RTCIceServer Js.t list
   ; ice_transport_policy : ice_transport_policy option
   ; bundle_policy : bundle_policy option
@@ -175,8 +175,10 @@ type t =
   (* Callbacks *)
   ; on_local_stream : (mediaStream Js.t -> unit) option
   ; on_remote_stream : (mediaStream Js.t -> unit) option
-  ; on_message : 'a. (?jsep:_RTCSessionDescription Js.t -> 'a Js.t -> unit) option
-  ; on_jsep : (unit -> unit) option
+  ; on_message : 'a. (?jsep:_RTCSessionDescriptionInit Js.t ->
+                      'a Js.t ->
+                      t ->
+                      unit) option
   ; on_consent_dialog : (bool -> unit) option
   ; on_ice_state : (ice_connection_state -> unit) option
   ; on_webrtc_state : (webrtc_state -> unit) option

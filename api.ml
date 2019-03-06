@@ -115,7 +115,7 @@ module Msg = struct
       (** An optional JSON object containing the JSEP SDP (offer or answer)
           the plugin may send to negotiate a WebRTC PeerConnection with the
           client *)
-      method jsep : _RTCSessionDescription Js.t Js.optdef_prop
+      method jsep : _RTCSessionDescriptionInit Js.t Js.optdef_prop
     end
 
   class type webrtc_event_base =

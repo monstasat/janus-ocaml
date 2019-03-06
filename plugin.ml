@@ -84,17 +84,18 @@ let find_transceivers (x : _RTCRtpTransceiver Js.t Js.js_array Js.t) =
       atr, vtr in
     x##reduce_init (Js.wrap_callback cb) (None, None)
 
-let handle_transceiver ~(recv_en : bool) ~(send_en : bool) ~(need_rm : bool)
-      (transceiver : _RTCRtpTransceiver Js.t option)
+let handle_transceiver (transceiver : _RTCRtpTransceiver Js.t option)
       (pc : _RTCPeerConnection Js.t)
-      (typ : [`Audio | `Video]) =
-  let kind = match typ with
-    | `Audio -> "audio"
-    | `Video -> "video" in
-  match send_en, recv_en, transceiver with
+      (track : Media.track) =
+  let kind = match track.typ with
+    | Audio _ -> "audio"
+    | Video _ -> "video" in
+  match Media.is_track_send_enabled track,
+        Media.is_track_recv_enabled track,
+        transceiver with
   | false, false, Some (tr : _RTCRtpTransceiver Js.t) ->
      (* Track disabled: have we removed it? *)
-     if need_rm then (
+     if Media.should_remove_track track then (
        tr##.direction := Js.string "inactive";
        Log.ign_info_f ~inspect:tr "Setting %s transceiver to inactive:" kind)
   | true, true, Some (tr : _RTCRtpTransceiver Js.t) ->
@@ -115,9 +116,9 @@ let handle_transceiver ~(recv_en : bool) ~(send_en : bool) ~(need_rm : bool)
      Log.ign_info_f ~inspect:tr "Adding recvonly %s transceiver:" kind
   | _ -> ()
 
-let handle_simulcasting ~video_send ~simulcast pc : unit =
+let handle_firefox_simulcast (pc : _RTCPeerConnection Js.t) : unit =
   (* Check if this is Firefox and we've been asked to do simulcasting *)
-  if video_send && simulcast && check_browser ~browser:"firefox" () then (
+  if check_browser ~browser:"firefox" () then (
 		(* FIXME Based on https://gist.github.com/voluntas/088bc3cc62094730647b *)
     Log.ign_info "Enabling simulcasting for Firefox (RID)";
     let cb = fun (s : _RTCRtpSender Js.t) _ _ ->
@@ -147,7 +148,27 @@ let handle_simulcasting ~video_send ~simulcast pc : unit =
        parameters##.encodings := encodings;
        sender##setParameters parameters)
 
-let create_offer ?(ice_restart = false) ?(simulcast = false)
+let handle_chrome_simulcast (sdp : _RTCSessionDescriptionInit Js.t) =
+  (* This SDP munging only works with chrome
+     (Safari STP may support it too) *)
+  if check_browser ~browser:"chrome" ()
+     || check_browser ~browser:"safari" ()
+  then (
+    if String.equal "answer" (Js.to_string sdp##._type)
+    then Log.ign_warning "simulcast=true, but this is an answer, and video \
+                          breaks in Chrome if we enable it"
+    else (
+      Log.ign_info "Enabling Simulcasting for Chrome (SDP munging)";
+      let new_sdp = munge_sdp_for_simulcasting sdp##.sdp in
+      (Js.Unsafe.coerce sdp)##.sdp := new_sdp))
+  else if not (check_browser ~browser:"firefox" ())
+  then Log.ign_warning "simulcast=true, but this is not Chrome \
+                        nor Firefox, ignoring"
+
+let is_simulcast_needed ?(simulcast = false) (media : Media.t) : bool =
+  simulcast && Media.is_track_send_enabled media.video
+
+let create_offer_ ?(ice_restart = false) ?simulcast
       (media : Media.t) (t : t)
     : (_RTCSessionDescription Js.t option, string) Lwt_result.t =
   t.webrtc.pc
@@ -155,54 +176,33 @@ let create_offer ?(ice_restart = false) ?(simulcast = false)
          "create_offer: RTCPeerConnection is not established")
   |> Lwt_result.lift
   >>= fun (pc : _RTCPeerConnection Js.t) ->
-  Log.ign_info_f "Creating offer (iceDone=%b, simulcast=%b)"
-    t.webrtc.ice_done simulcast;
+  Log.ign_info_f "Creating offer (iceDone=%b, simulcast=%s)"
+    t.webrtc.ice_done (Option.to_string string_of_bool simulcast);
   let (media_constraints : _RTCOfferOptions Js.t) = Js.Unsafe.obj [||] in
-  let audio_send = Media.is_audio_send_enabled ~media () in
-  let audio_recv = Media.is_audio_recv_enabled ~media () in
-  let video_send = Media.is_video_send_enabled ~media () in
-  let video_recv = Media.is_video_recv_enabled ~media () in
   if check_browser ~browser:"firefox" ~ver:59 ~ver_cmp:(>=) ()
   then (
     (* Firefox >= 59 uses Transceivers *)
     let audio_transceiver, video_transceiver =
       find_transceivers pc##getTransceivers in
     (* Handle audio (and related changes, if any) *)
-    handle_transceiver
-      ~recv_en:audio_recv
-      ~send_en:audio_send
-      ~need_rm:media.remove_audio
-      audio_transceiver pc `Audio;
+    handle_transceiver audio_transceiver pc media.audio;
     (* Handle video (and related changes, if any) *)
-    handle_transceiver
-      ~recv_en:video_recv
-      ~send_en:video_send
-      ~need_rm:media.remove_video
-      video_transceiver pc `Video)
+    handle_transceiver video_transceiver pc media.video)
   else (
+    let audio_recv = Media.is_track_recv_enabled media.audio in
+    let video_recv = Media.is_track_recv_enabled media.video in
     media_constraints##.offerToReceiveAudio := Js.bool audio_recv;
     media_constraints##.offerToReceiveVideo := Js.bool video_recv);
   if ice_restart then media_constraints##.iceRestart := Js._true;
   Log.ign_debug ~inspect:media_constraints "";
-  handle_simulcasting ~video_send ~simulcast pc;
+  let need_simulcast = is_simulcast_needed ?simulcast media in
+  if need_simulcast then handle_firefox_simulcast pc;
   Lwt.try_bind (fun () ->
       Promise.to_lwt @@ pc##createOffer media_constraints)
     (fun (offer : _RTCSessionDescriptionInit Js.t) ->
       Log.ign_debug ~inspect:offer "";
       Log.ign_info "Setting local description";
-      if video_send && simulcast
-      then (
-        (* This SDP munging only works with chrome
-           (Safari STP may support it too) *)
-        if check_browser ~browser:"chrome" ()
-           || check_browser ~browser:"safari" ()
-        then (
-          Log.ign_info "Enabling Simulcasting for Chrome (SDP munging)";
-          let new_sdp = munge_sdp_for_simulcasting offer##.sdp in
-          (Js.Unsafe.coerce offer)##.sdp := new_sdp)
-        else if not (check_browser ~browser:"firefox" ())
-        then Log.ign_warning "simulcast=true, but this is not Chrome \
-                              nor Firefox, ignoring");
+      if need_simulcast then handle_chrome_simulcast offer;
       t.webrtc <- { t.webrtc with local_sdp = Some offer };
       Lwt.try_bind (fun () -> Promise.to_lwt @@ pc##setLocalDescription offer)
         (fun () ->
@@ -222,21 +222,16 @@ let create_offer ?(ice_restart = false) ?(simulcast = false)
         (fun e -> Lwt.return_error @@ exn_to_string e))
     (fun e -> Lwt.return_error @@ exn_to_string e)
 
-let create_answer ?(simulcast = false)
-      (media : Media.t) (t : t)
+let create_answer_ ?simulcast (media : Media.t) (t : t)
     : (_RTCSessionDescription Js.t option, string) Lwt_result.t =
   t.webrtc.pc
   |> Option.to_result_lazy (fun () ->
          "create_offer: RTCPeerConnection is not established")
   |> Lwt_result.lift
   >>= fun (pc : _RTCPeerConnection Js.t) ->
-  Log.ign_info_f "Creating answer (iceDone=%b, simulcast=%b)"
-    t.webrtc.ice_done simulcast;
+  Log.ign_info_f "Creating answer (iceDone=%b, simulcast=%s)"
+    t.webrtc.ice_done (Option.to_string string_of_bool simulcast);
   let (media_constraints : _RTCAnswerOptions Js.t) = Js.Unsafe.obj [||] in
-  let audio_send = Media.is_audio_send_enabled ~media () in
-  let audio_recv = Media.is_audio_recv_enabled ~media () in
-  let video_send = Media.is_video_send_enabled ~media () in
-  let video_recv = Media.is_video_recv_enabled ~media () in
   if check_browser ~browser:"firefox" ~ver:59 ~ver_cmp:(>=) ()
      || check_browser ~browser:"chrome" ~ver:72 ~ver_cmp:(>=) ()
   then (
@@ -244,52 +239,32 @@ let create_answer ?(simulcast = false)
     let audio_transceiver, video_transceiver =
       find_transceivers pc##getTransceivers in
     (* Handle audio (and related changes, if any) *)
-    handle_transceiver
-      ~recv_en:audio_recv
-      ~send_en:audio_send
-      ~need_rm:media.remove_audio
-      audio_transceiver pc `Audio;
+    handle_transceiver audio_transceiver pc media.audio;
     (* Handle video (and related changes, if any) *)
-    handle_transceiver
-      ~recv_en:video_recv
-      ~send_en:video_send
-      ~need_rm:media.remove_video
-      video_transceiver pc `Video;
-    ()
-  )
+    handle_transceiver video_transceiver pc media.video)
   else if check_browser ~browser:"firefox" ()
           || check_browser ~browser:"edge" ()
   then (
-    let a = Js.bool audio_recv in
-    let v = Js.bool video_recv in
-    (Js.Unsafe.coerce media_constraints)##.offerToReceiveAudio := a;
-    (Js.Unsafe.coerce media_constraints)##.offerToReceiveVideo := v;
-  )
+    let a = Media.is_track_recv_enabled media.audio in
+    let v = Media.is_track_recv_enabled media.video in
+    (Js.Unsafe.coerce media_constraints)##.offerToReceiveAudio := Js.bool a;
+    (Js.Unsafe.coerce media_constraints)##.offerToReceiveVideo := Js.bool v)
   else (
+    let a = Media.is_track_recv_enabled media.audio in
+    let v = Media.is_track_recv_enabled media.video in
     let mandatory = Js.Unsafe.(
-        obj [| "OfferToReceiveAudio", inject @@ Js.bool audio_recv
-             ; "OfferToReceiveVideo", inject @@ Js.bool video_recv |]) in
-    (Js.Unsafe.coerce media_constraints)##.mandatory := mandatory;
-  );
+        obj [| "OfferToReceiveAudio", inject @@ Js.bool a
+             ; "OfferToReceiveVideo", inject @@ Js.bool v |]) in
+    (Js.Unsafe.coerce media_constraints)##.mandatory := mandatory);
   Log.ign_debug ~inspect:media_constraints "";
-  handle_simulcasting ~video_send ~simulcast pc;
+  let need_simulcast = is_simulcast_needed ?simulcast media in
+  if need_simulcast then handle_firefox_simulcast pc;
   Lwt.try_bind (fun () ->
       Promise.to_lwt @@ pc##createAnswer media_constraints)
     (fun (answer : _RTCSessionDescriptionInit Js.t) ->
       Log.ign_debug ~inspect:answer "";
       Log.ign_info "Setting local description";
-      if video_send && simulcast then (
-        if check_browser ~browser:"chrome" () then (
-          (* FIXME Apparently trying to simulcast when answering
-             breaks video in Chrome... *)
-          (* Log.ign_info "Enabling Simulcasting for Chrome (SDP munging)";
-           * let new_sdp = munge_sdp_for_simulcasting answer##.sdp in
-           * (Js.Unsafe.coerce answer)##.sdp := new_sdp *)
-          Log.ign_warning "simulcast=true, but this is an answer, and video \
-                           breaks in Chrome if we enable it")
-        else if not (check_browser ~browser:"firefox" ())
-        then Log.ign_warning "simulcast=true, but this is not Chrome \
-                              nor Firefox, ignoring");
+      if need_simulcast then handle_chrome_simulcast answer;
       t.webrtc <- { t.webrtc with local_sdp = Some answer };
       Lwt.try_bind (fun () -> Promise.to_lwt @@ pc##setLocalDescription answer)
         (fun () ->
@@ -308,66 +283,40 @@ let create_answer ?(simulcast = false)
         (fun e -> Lwt.return_error @@ exn_to_string e))
     (fun e -> Lwt.return_error @@ exn_to_string e)
 
-let update_audio_stream ~(replace_audio : bool)
+let update_stream
+      (media : Media.track)
       (stream : mediaStream Js.t)
       (track : mediaStreamTrack Js.t)
       (pc : _RTCPeerConnection Js.t) =
   stream##addTrack track;
-  if replace_audio
+  let replace = match media.update with
+    | Some Replace -> true | _ -> false in
+  let kind = match media.typ with
+    | Audio _ -> "audio"
+    | Video _ -> "video" in
+  if replace
      && check_browser ~browser:"firefox" ()
      && check_browser ~browser:"chrome" ~ver:72 ~ver_cmp:(>=) ()
   then (
-    Log.ign_info ~inspect:track "Replacing audio track:";
+    Log.ign_info_f ~inspect:track "Replacing %s track:" kind;
     let rec aux = function
       | [] -> ()
       | (sender : _RTCRtpSender Js.t) :: tl ->
          (match Js.Opt.to_option sender##.track with
           | None -> ()
           | Some (track' : mediaStreamTrack Js.t) ->
-             if String.equal "audio" (Js.to_string track'##.kind)
+             if String.equal kind (Js.to_string track'##.kind)
              then ignore @@ sender##replaceTrack (Js.some track));
          aux tl in
-    aux (Array.to_list @@ Js.to_array @@ pc##getSenders)
-  )
+    aux (Array.to_list @@ Js.to_array @@ pc##getSenders))
   else if check_browser ~browser:"firefox" ~ver:59 ~ver_cmp:(>=) ()
   then (
   (* Firefox >= 59 uses Transceivers *)
   (* TODO implement *)
   )
   else (
-    let prefix = if replace_audio then "Replacing" else "Adding" in
-    Log.ign_info_f ~inspect:track "%s audio track:" prefix;
-    pc##addTrack track stream)
-
-let update_video_stream ~(replace_video : bool)
-      (stream : mediaStream Js.t)
-      (track : mediaStreamTrack Js.t)
-      (pc : _RTCPeerConnection Js.t) =
-  stream##addTrack track;
-  if replace_video
-     && check_browser ~browser:"firefox" ()
-     && check_browser ~browser:"chrome" ~ver:72 ~ver_cmp:(>=) ()
-  then (
-    Log.ign_info ~inspect:track "Replacing video track:";
-    let rec aux = function
-      | [] -> ()
-      | (sender : _RTCRtpSender Js.t) :: tl ->
-         (match Js.Opt.to_option sender##.track with
-          | None -> ()
-          | Some (track' : mediaStreamTrack Js.t) ->
-             if String.equal "video" (Js.to_string track'##.kind)
-             then ignore @@ sender##replaceTrack (Js.some track));
-         aux tl in
-    aux (Array.to_list @@ Js.to_array @@ pc##getSenders)
-  )
-  else if check_browser ~browser:"firefox" ~ver:59 ~ver_cmp:(>=) ()
-  then (
-    let prefix = if replace_video then "Replacing" else "Adding" in
-    Log.ign_info_f ~inspect:track "%s video track:" prefix;
-  )
-  else (
-    let prefix = if replace_video then "Replacing" else "Adding" in
-    Log.ign_info_f ~inspect:track "%s video track:" prefix;
+    let prefix = if replace then "Replacing" else "Adding" in
+    Log.ign_info_f ~inspect:track "%s %s track:" prefix kind;
     pc##addTrack track stream)
 
 let handle_cached_candidates
@@ -387,9 +336,16 @@ let handle_cached_candidates
     candidates##forEach (Js.wrap_callback cb);
     candidates##.length := 0)
 
+type media_ext =
+  { update : bool
+  ; keep_audio : bool
+  ; keep_video : bool
+  ; media : Media.t
+  }
+
 let streams_done ?(jsep : _RTCSessionDescriptionInit Js.t option)
       ?(stream : mediaStream Js.t option)
-      (media : Media.t)
+      ({ update; media; _ } : media_ext)
       (t : t) =
   (* If we still need to create a PeerConnection, let's do that *)
   let (pc : _RTCPeerConnection Js.t) = match t.webrtc.pc with
@@ -399,9 +355,7 @@ let streams_done ?(jsep : _RTCSessionDescriptionInit Js.t option)
        t.webrtc <- { t.webrtc with pc = Some pc };
        Peer_connection.init t pc;
        pc in
-  begin match t.webrtc.local_stream,
-              media.update,
-              t.webrtc.stream_external with
+  begin match t.webrtc.local_stream, update, t.webrtc.stream_external with
   | None, _, _ | _, false, _ | _, _, true ->
      t.webrtc <- { t.webrtc with local_stream = stream };
      begin match stream with
@@ -422,10 +376,11 @@ let streams_done ?(jsep : _RTCSessionDescriptionInit Js.t option)
      begin match audio_track with
      | None -> ()
      | Some track ->
-        let ({ update; add_audio; replace_audio; _ } : Media.t) = media in
-        if ((not update && Media.is_audio_send_enabled ~media ())
-            || (update && (add_audio || replace_audio)))
-        then update_audio_stream ~replace_audio my_stream track pc
+        let send_en = Media.is_track_send_enabled media.audio in
+        match update, media.audio.update, send_en with
+        | true, Some Add, _ | true, Some Replace, _ | false, _, true  ->
+           update_stream media.audio my_stream track pc
+        | _ -> ()
      end;
      let (video_track : mediaStreamTrack Js.t option) = match stream with
        | None -> None
@@ -433,10 +388,11 @@ let streams_done ?(jsep : _RTCSessionDescriptionInit Js.t option)
      begin match video_track with
      | None -> ()
      | Some track ->
-        let ({ update; add_video; replace_video; _ } : Media.t) = media in
-        if ((not update && Media.is_video_send_enabled ~media ())
-            || (update && (add_video || replace_video)))
-        then update_video_stream ~replace_video my_stream track pc
+        let send_en = Media.is_track_send_enabled media.video in
+        match update, media.video.update, send_en with
+        | true, Some Add, _ | true, Some Replace, _ | false, _, true  ->
+           update_stream media.video my_stream track pc
+        | _ -> ()
      end;
   end;
   (* Any data channel to create? *)
@@ -453,7 +409,7 @@ let streams_done ?(jsep : _RTCSessionDescriptionInit Js.t option)
   end;
   (* Create offer/answer now *)
   begin match jsep with
-  | None -> create_offer media t
+  | None -> create_offer_ media t
   | Some (jsep : _RTCSessionDescriptionInit Js.t) ->
      Lwt.try_bind
        (fun () -> Promise.to_lwt @@ pc##setRemoteDescription jsep)
@@ -462,9 +418,187 @@ let streams_done ?(jsep : _RTCSessionDescriptionInit Js.t option)
          t.webrtc <- { t.webrtc with remote_sdp = Some jsep };
          (* Any trickle candidate we cached? *)
          handle_cached_candidates t.webrtc.candidates pc;
-         create_answer media t)
+         create_answer_ media t)
        (fun e -> Lwt.return_error @@ exn_to_string e)
   end
+
+let remove_track (typ : [`Audio | `Video]) (stream : mediaStream Js.t) =
+  let kind, tracks = match typ with
+    | `Audio -> "audio", stream##getAudioTracks
+    | `Video -> "video", stream##getVideoTracks in
+  match array_get tracks 0 with
+  | None -> ()
+  | Some (track : mediaStreamTrack Js.t) ->
+     Log.ign_info_f ~inspect:track "Removing %s track" kind;
+     stream##removeTrack track;
+     try track##stop with _ -> ()
+
+let replace_track (kind : string) (pc : _RTCPeerConnection Js.t) =
+  let rec aux = function
+    | [] -> ()
+    | (sender : _RTCRtpSender Js.t) :: tl ->
+       if check_browser ~browser:"firefox" ()
+          || check_browser ~browser:"chrome" ~ver:72 ~ver_cmp:(>=) ()
+       then () (* We can use replaceTrack *)
+       else (
+         (match Js.Opt.to_option sender##.track with
+          | None -> ()
+          | Some track ->
+             if String.equal kind (Js.to_string track##.kind)
+             then (
+               Log.ign_info_f ~inspect:sender "Removing %s sender:" kind;
+               pc##removeTrack sender));
+         aux tl) in
+  let senders = Array.to_list @@ Js.to_array pc##getSenders in
+  aux senders
+
+let remove_or_replace_tracks (media : Media.t)
+      (local_stream : mediaStream Js.t option)
+      (pc : _RTCPeerConnection Js.t option) : unit =
+  begin match media.audio.update with
+  | None | Some Add -> ()
+  | Some Remove | Some Replace ->
+     Option.iter (remove_track `Audio) local_stream;
+     Option.iter (replace_track "audio") pc
+  end;
+  begin match media.video.update with
+  | None | Some Add -> ()
+  | Some Remove | Some Replace ->
+     Option.iter (remove_track `Video) local_stream;
+     Option.iter (replace_track "video") pc
+  end
+
+let update_track (local_stream : mediaStream Js.t option)
+      (track : Media.track) : (bool * Media.track, string) result =
+  match local_stream with
+  | None ->
+     (* No media stream: if we were asked to replace,
+             it's actually and 'add' *)
+     begin match Media.is_track_send_enabled track, track.update with
+     | true, _ | _, Some Replace ->
+        Ok (false, { track with update = Some Add })
+     | _ -> Ok (false, track)
+     end
+  | Some s ->
+     let kind, tracks = match track.typ with
+       | Audio _ -> "audio", s##getAudioTracks
+       | Video _ -> "video", s##getVideoTracks in
+     match tracks##.length with
+     | 0 ->
+        (* No track: if we were asked to replace, it's actually an 'add' *)
+        begin match Media.is_track_send_enabled track, track.update with
+        | true, _ | _, Some Replace ->
+           Ok (false, { track with update = Some Add })
+        | _ -> Ok (false, track)
+        end
+     | _ ->
+        (* We have a track: should we keep it as it is? *)
+        begin match track.update with
+        | Some Add ->
+           let s =
+             Printf.sprintf
+               "Can't add %s stream, there is already one present"
+               kind in
+           Log.ign_error s;
+           Error s
+        | Some Remove | Some Replace -> Ok (false, track)
+        | None -> Ok (Media.is_track_send_enabled track, track)
+        end
+
+let get_user_media ~simulcast (media : Media.t) =
+  ignore simulcast;
+  ignore media;
+  Lwt.return_error ""
+
+let check_peer_connection ?stream (media : Media.t) (t : t) =
+  (* Are we updating a session? *)
+  match t.webrtc.pc with
+  | None ->
+     (* Nope, no PeerConnection *)
+     Ok { update = false
+        ; keep_audio = false
+        ; keep_video = false
+        ; media }
+  | Some (_ : _RTCPeerConnection Js.t) ->
+     Log.ign_info "Updating existing media session";
+     (* Check if there's anything to add/remove/replace, or if we
+          can go directly to preparing the new SDP offer or answer *)
+     match stream with
+     | Some s ->
+        (* External stream: is this the same as the one
+             we were using before? *)
+        if not (Option.equal ~eq:(==) (Some s) t.webrtc.local_stream)
+        then Log.ign_info "Renegotiation involves a new external stream";
+        Ok { update = true
+           ; keep_audio = false
+           ; keep_video = false
+           ; media }
+     | None ->
+        (* FIXME add data channels *)
+        Result.Infix.(
+         let local_stream = t.webrtc.local_stream in
+         (* Check if there are changes on audio*)
+         update_track local_stream media.audio
+         (* Check if there are changes on video *)
+         >>= fun (keep_audio, audio) ->
+         update_track local_stream media.video
+         >|= fun (keep_video, video) ->
+         let media = { media with audio; video } in
+         { update = true
+         ; keep_audio
+         ; keep_video
+         ; media })
+
+let prepare_webrtc ?(simulcast = false) ?(trickle = true)
+      ?(stream : mediaStream Js.t option)
+      ?(jsep : _RTCSessionDescriptionInit Js.t option)
+      (media : Media.t)
+      (t : t) =
+  t.webrtc <- { t.webrtc with trickle };
+  check_peer_connection ?stream media t
+  |> Lwt_result.lift
+  >>= fun ({ media; update; keep_audio; keep_video } as media_ext) ->
+  (* If we're updating and keeping all tracks,
+     let's skip the getUserMedia part *)
+  if update
+     && Media.is_track_send_enabled media.audio && keep_audio
+     && Media.is_track_send_enabled media.video && keep_video
+  then streams_done ?jsep ?stream:t.webrtc.local_stream media_ext t
+  else (
+    (* If we're updating, check if we need to
+       remove/replace one of the tracks *)
+    if update && not t.webrtc.stream_external
+    then remove_or_replace_tracks media t.webrtc.local_stream t.webrtc.pc;
+    (* Was a MediaStream object passed, or do we need to take care of that? *)
+    match stream with
+    | Some (stream : mediaStream Js.t) ->
+       Log.ign_info "MediaStream provided by the application";
+       Log.ign_debug ~inspect:stream "";
+       begin match update, t.webrtc.local_stream, t.webrtc.stream_external with
+       | false, _, _ | _, None, _ | _, _, true -> ()
+       | true, Some (local : mediaStream Js.t), false ->
+          if local != stream then (
+            (* We're replacing a stream we captured
+             ourselves with an external one *)
+            (try
+               (* Try a MediaStreamTrack.stop() for each track *)
+               let tracks = local##getTracks in
+               let cb = fun (track : mediaStreamTrack Js.t) _ _ ->
+                 Log.ign_debug ~inspect:track "";
+                 track##stop in
+               tracks##forEach (Js.wrap_callback cb)
+             with _ -> ());
+            t.webrtc <- { t.webrtc with local_stream = None })
+       end;
+       t.webrtc <- { t.webrtc with stream_external = true };
+       streams_done ?jsep ~stream media_ext t
+    | None ->
+       if Media.is_track_send_enabled media.audio
+          || Media.is_track_send_enabled media.video
+       then get_user_media ~simulcast media
+       else
+         (* No need to do a getUserMedia, create offer/answer right away *)
+         streams_done ?jsep ?stream media_ext t)
 
 let prepare_webrtc_peer (jsep : _RTCSessionDescriptionInit Js.t)
       (t : t) : (unit, string) Lwt_result.t =
@@ -520,6 +654,34 @@ let unmute_video (t : t) : unit =
 
 let bitrate (t : t) : unit =
   ignore t
+
+let create_offer ?simulcast ?trickle ?stream
+      ?audio ?video ?data (t : t) =
+  let audio = match audio with
+    | Some x -> x
+    | None -> Media.make_audio (`Bool true) in
+  let video = match video with
+    | Some x -> x
+    | None -> Media.make_video (`Bool true) in
+  let data = match data with
+    | Some x -> x
+    | None -> `Bool false in
+  let media = Media.{ audio; video; data } in
+  prepare_webrtc ?simulcast ?trickle ?stream media t
+
+let create_answer ?simulcast ?trickle ?jsep ?stream
+      ?audio ?video ?data (t : t) =
+  let audio = match audio with
+    | Some x -> x
+    | None -> Media.make_audio (`Bool true) in
+  let video = match video with
+    | Some x -> x
+    | None -> Media.make_video (`Bool true) in
+  let data = match data with
+    | Some x -> x
+    | None -> `Bool false in
+  let media = Media.{ audio; video; data } in
+  prepare_webrtc ?simulcast ?trickle ?stream ?jsep media t
 
 let handle_remote_jsep (jsep : _RTCSessionDescriptionInit Js.t)
       (t : t) : (unit, string) Lwt_result.t =
