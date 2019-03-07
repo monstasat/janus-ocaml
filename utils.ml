@@ -151,11 +151,13 @@ let is_webrtc_supported () : bool =
   let test_opt = Js.Opt.test in
   let coerce = Js.Unsafe.coerce in
   let wnd = Dom_html.window in
-  let nav = wnd##.navigator in
+  let nav = coerce wnd##.navigator in
   test_def (coerce wnd)##.RTCPeerConnection
   && test_opt (coerce wnd)##.RTCPeerConnection
-  && test_def (coerce nav)##.getUserMedia
-  && test_opt (coerce nav)##.getUserMedia
+  && test_def (coerce nav)##.mediaDevices
+  && test_opt (coerce nav)##.mediaDevices
+  && test_def (coerce nav)##.mediaDevices##.getUserMedia
+  && test_opt (coerce nav)##.mediaDevices##.getUserMedia
 
 let is_webrtc_supported_lwt () : (unit, string) Lwt_result.t =
   if is_webrtc_supported () then Lwt_result.return () else (

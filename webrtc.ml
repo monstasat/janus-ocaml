@@ -1010,6 +1010,8 @@ class type _RTCPeerConnection =
     object
       inherit Dom_html.eventTarget
 
+      (* Properties *)
+
       (** A DOMString containing 36 characters denoting a universally
         unique identifier (UUID) for the object.*)
       method id : Js.js_string Js.t Js.prop
@@ -1018,32 +1020,69 @@ class type _RTCPeerConnection =
         or false otherwise. *)
       method active : bool Js.t Js.prop
 
+      (* Event handlers *)
+
       (** An EventHandler containing the action to perform when an addtrack
         event is fired when a new MediaStreamTrack object is added. *)
       method onaddtrack
-             : ('b Js.t, Dom_html.event Js.t) Dom_html.event_listener
+             : ('b Js.t, mediaStreamTrackEvent Js.t) Dom_html.event_listener
                  Js.writeonly_prop
 
       (** An EventHandler containing the action to perform when a removetrack
         event is fired when a  MediaStreamTrack object is removed from it. *)
       method onremovetrack
-             : ('b Js.t, Dom_html.event Js.t) Dom_html.event_listener
+             : ('b Js.t, mediaStreamTrackEvent Js.t) Dom_html.event_listener
                  Js.writeonly_prop
 
+      (* Methods *)
+
+      (** Stores a copy of the MediaStreamTrack given as argument.
+          If the track has already been added to the MediaStream object,
+          nothing happens. *)
       method addTrack : mediaStreamTrack Js.t -> unit Js.meth
 
+      (** Returns a clone of the MediaStream object.
+          The clone will, however, have a unique value for id. *)
       method clone : mediaStream Js.t Js.meth
 
+      (** Returns a list of the MediaStreamTrack objects stored in the
+          MediaStream object that have their kind attribute set to "audio".
+          The order is not defined, and may not only vary from one browser
+          to another, but also from one call to another. *)
       method getAudioTracks : mediaStreamTrack Js.t Js.js_array Js.t Js.meth
 
+      (** Returns the track whose ID corresponds to the one given in parameters,
+          trackid. If no parameter is given, or if no track with that ID does
+          exist, it returns null. If several tracks have the same ID,
+          it returns the first one. *)
       method getTrackById : Js.js_string Js.t ->
                             mediaStreamTrack Js.t Js.opt Js.meth
 
+      (** Returns a list of all MediaStreamTrack objects stored in the
+          MediaStream object, regardless of the value of the kind attribute.
+          The order is not defined, and may not only vary from one browser
+          to another, but also from one call to another. *)
       method getTracks : mediaStreamTrack Js.t Js.js_array Js.t Js.meth
 
+      (** Returns a list of the MediaStreamTrack objects stored in the
+          MediaStream object that have their kind attribute set to "video".
+          The order is not defined, and may not only vary from one browser
+          to another, but also from one call to another. *)
       method getVideoTracks : mediaStreamTrack Js.t Js.js_array Js.t Js.meth
 
+      (** Removes the MediaStreamTrack given as argument.
+          If the track is not part of the MediaStream object,
+          nothing happens. *)
       method removeTrack : mediaStreamTrack Js.t -> unit Js.meth
+
+    end
+
+  and mediaStreamTrackEvent =
+    object
+
+      inherit [mediaStream Js.t] Dom.event
+
+      method track : mediaStreamTrack Js.t Js.readonly_prop
 
     end
 
@@ -1367,5 +1406,172 @@ class type _RTCPeerConnection =
           to support non-multiplexed RTCP. The value must be one of those from
           the RTCRtcpMuxPolicy enum. The default is "require". *)
       method rtcpMuxPolicy : Js.js_string Js.t Js.optdef_prop
+
+    end
+
+type bool_or_constraints
+
+let wrap_bool (x : bool) : bool_or_constraints Js.t =
+  Js.Unsafe.coerce (Js.bool x)
+
+let wrap_constraints (x : mediaTrackConstraints Js.t) :
+      bool_or_constraints Js.t =
+  Js.Unsafe.coerce x
+
+let cast_bool (x : bool_or_constraints Js.t) : bool Js.t Js.opt =
+  if Js.typeof x == Js.typeof Js._true
+  then Js.some (Js.Unsafe.coerce x)
+  else Js.null
+
+let cast_constraints (x : bool_or_constraints Js.t) :
+      mediaTrackConstraints Js.t Js.opt =
+  if String.equal (Js.to_string @@ Js.typeof x) "object"
+  then Js.some (Js.Unsafe.coerce x)
+  else Js.null
+
+class type mediaDevices =
+  object
+
+    (* Properties *)
+
+    (** The event handler for the devicechange event.
+        This event is delivered to the MediaDevices object when a media input
+        or output device is attached to or removed from the user's computer. *)
+    method ondevicechange :
+             ('b Js.t, mediaDevices Js.t Dom.event Js.t) Dom_html.event_listener
+               Js.writeonly_prop
+
+    (* Methods *)
+
+    (** Obtains an array of information about the media input and output devices
+        available on the system. *)
+    method enumerateDevices :
+             (mediaDeviceInfo Js.t Js.js_array Js.t, exn) promise Js.meth
+
+    (** Returns an object conforming to MediaTrackSupportedConstraints
+        indicating which constrainable properties are supported on the
+        MediaStreamTrack interface. See Capabilities and constraints in
+        Media Capture and Streams API (Media Stream) to learn more about
+        constraints and how to use them. *)
+    method getSupportedConstraints : mediaTrackSupportedConstraints Js.t Js.meth
+
+    (** Prompts the user to select a display or portion of a display
+        (such as a window) to capture as a MediaStream for sharing or recording
+        purposes.  Returns a promise that resolves to a MediaStream. *)
+    method getDisplayMedia :
+             mediaStreamConstraints Js.t ->
+             (mediaStream Js.t, exn) promise Js.meth
+    method getDisplayMedia_ : (mediaStream Js.t, exn) promise Js.t Js.meth
+
+    (** With the user's permission through a prompt, turns on a camera and/or
+        a microphone on the system and provides a MediaStream containing a video
+        track and/or an audio track with the input. *)
+    method getUserMedia :
+             mediaStreamConstraints Js.t ->
+             (mediaStream Js.t, exn) promise Js.meth
+    method getUserMedia_ : (mediaStream Js.t, exn) promise Js.meth
+
+  end
+
+  and mediaStreamConstraints =
+    object
+
+      (* Properties *)
+
+      (** Either a Boolean (which indicates whether or not an audio track
+          is requested) or a MediaTrackConstraints object providing the
+          constraints which must be met by the audio track included in the
+          returned MediaStream. If constraints are specified, an audio track
+          is inherently requested. *)
+      method audio : bool_or_constraints Js.t Js.optdef_prop
+
+      (** Either a Boolean (which indicates whether or not a video track
+          is requested) or a MediaTrackConstraints object providing the
+          constraints which must be met by the video track included in the
+          returned MediaStream. If constraints are specified, a video track
+          is inherently requested. *)
+      method video : bool_or_constraints Js.t Js.optdef_prop
+
+      (** A DOMString identifying the peer who has sole access to the stream.
+          If this property is specified, only the indicated peer can receive
+          and use the stream. Streams isolated in this way can only be displayed
+          in a media element (<audio> or <video>) where the content is protected
+          just as if CORS cross-origin rules were in effect. When a peer
+          identity is set, MediaStreamTracks from that peer have their isolated
+          flag set to true. *)
+      method peerIdentity : Js.js_string Js.t Js.optdef_prop
+
+    end
+
+  and mediaDeviceInfo =
+    object
+
+      (* Properties *)
+
+      (** Returns a DOMString that is an identifier for the represented device
+          that is persisted across sessions. It is un-guessable by other
+          applications and unique to the origin of the calling application.
+          It is reset when the user clears cookies (for Private Browsing,
+          a different identifier is used that is not persisted across
+          sessions). *)
+      method deviceId : Js.js_string Js.t Js.readonly_prop
+
+      (** Returns a DOMString that is a group identifier. Two devices have the
+          same group identifier if they belong to the same physical device — for
+          example a monitor with both a built-in camera and a microphone. *)
+      method groupId : Js.js_string Js.t Js.readonly_prop
+
+      (** Returns an enumerated value that is either "videoinput",
+          "audioinput" or "audiooutput". *)
+      method kind : Js.js_string Js.t Js.readonly_prop
+
+      (** Returns a DOMString that is a label describing this device
+          (for example "External USB Webcam"). *)
+      method label : Js.js_string Js.t Js.readonly_prop
+
+    end
+
+  and mediaTrackSupportedConstraints =
+    object
+
+      method autoGainControl : bool Js.t Js.optdef_prop
+
+      method width : bool Js.t Js.optdef_prop
+
+      method height : bool Js.t Js.optdef_prop
+
+      method aspectRatio : bool Js.t Js.optdef_prop
+
+      method frameRate : bool Js.t Js.optdef_prop
+
+      method facingMode : bool Js.t Js.optdef_prop
+
+      method resizeMode : bool Js.t Js.optdef_prop
+
+      method volume : bool Js.t Js.optdef_prop
+
+      method sampleRate : bool Js.t Js.optdef_prop
+
+      method sampleSize : bool Js.t Js.optdef_prop
+
+      method echoCancellation : bool Js.t Js.optdef_prop
+
+      method latency : bool Js.t Js.optdef_prop
+
+      method noiseSuppression : bool Js.t Js.optdef_prop
+
+      method channelCount : bool Js.t Js.optdef_prop
+
+      method deviceId : bool Js.t Js.optdef_prop
+
+      method groupId : bool Js.t Js.optdef_prop
+
+      (* Properties specific to shared screen tracks *)
+
+      method cursor : bool Js.t Js.optdef_prop
+
+      method displaySurface : bool Js.t Js.optdef_prop
+
+      method logicalSurface : bool Js.t Js.optdef_prop
 
     end

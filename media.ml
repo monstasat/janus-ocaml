@@ -93,6 +93,13 @@ type t =
   ; data : data
   }
 
+type t_ext =
+  { update : bool
+  ; keep_audio : bool
+  ; keep_video : bool
+  ; media : t
+  }
+
 let is_data_enabled ?(media : t option) () : bool =
   match get_browser () with
   | "edge" ->

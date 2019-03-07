@@ -5,7 +5,79 @@ module Streaming = Janus_streaming
 
 module Webrtc = Webrtc
 
-module Media = Media
+module Media : sig
+
+  type dir =
+    { send : bool
+    ; recv : bool
+    }
+
+  type upd =
+    | Add
+    | Remove
+    | Replace
+
+  type common_src =
+    [ `Bool of bool
+    | `Dir of dir
+    ]
+
+  type video =
+    [ common_src
+    | `Resolution of resolution
+    | `Screen of int option (* screenshare frame rate *)
+    | `Window of int option (* screenshare frame rate *)
+    | `Device of video_device
+    ]
+  and resolution =
+    [ `Low
+    | `Low_wide
+    | `SD
+    | `SD_wide
+    | `HD
+    | `FullHD
+    | `UHD
+    ]
+  and video_device =
+    { device_id : int
+    ; width : int
+    ; height : int
+    }
+
+  type audio =
+    [ common_src
+    | `Device of audio_device
+    ]
+  and audio_device =
+    { device_id : int
+    }
+
+  type track =
+    { fail_if_not_available : bool
+    ; update : upd option
+    ; typ : track_type
+    }
+  and track_type =
+    | Video of video
+    | Audio of audio
+
+  type data =
+    [ `Bool of bool
+    | `Options of data_options
+    ]
+  and data_options =
+    { ordered : bool option
+    ; max_packet_life_time : int option
+    ; max_retransmits : int option
+    ; protocol : string option
+    ; negotiated : bool option
+    ; id : int option
+    }
+
+  val make_audio : ?fail_if_not_available:bool -> ?update:upd -> audio -> track
+  val make_video : ?fail_if_not_available:bool -> ?update:upd -> video -> track
+
+end
 
 module Plugin : sig
 
