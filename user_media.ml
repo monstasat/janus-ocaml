@@ -156,36 +156,100 @@ let handle_screenshare (source : string)
       Lwt.return_error "Nor chrome, nor Firefox, \
                         screen sharing is not supported")
 
-let handle_media () =
+let make_video_constraints (res : Media.resolution)
+    : mediaTrackConstraints Js.t =
+  let w, h = Media.resolution_to_video_size res in
+  let (video : mediaTrackConstraints Js.t) = Js.Unsafe.obj [||] in
+  let (height : Constrain.Long.obj Js.t) = Js.Unsafe.obj [||] in
+  height##.ideal := h;
+  let (width : Constrain.Long.obj Js.t) = Js.Unsafe.obj [||] in
+  width##.ideal := w;
+  video##.height := Constrain.Long.wrap (`O height);
+  video##.width := Constrain.Long.wrap (`O width);
+  Log.ign_debug ~inspect:video "Adding video constraint:";
+  video
+
+let handle_media (media_ext : Media.t_ext) (t : t) =
+  let audio_send = Media.is_track_send_enabled media_ext.media.audio in
+  let video_send = Media.is_track_send_enabled media_ext.media.video in
   let (media_devices : mediaDevices Js.t) =
     (Js.Unsafe.coerce Dom_html.window##.navigator)##.mediaDevices in
-  Lwt.try_bind (fun () -> Promise.to_lwt @@ media_devices##enumerateDevices)
-    (fun devices ->
-      let cb (kind : string) = fun (device : mediaDeviceInfo Js.t) _ _ ->
-        Js.bool @@ String.equal (Js.to_string device##.kind) kind in
-      let (audio_exists : bool) =
-        Js.to_bool @@ devices##some (Js.wrap_callback (cb "audioinput")) in
-      let (video_exists : bool) =
-        Js.to_bool @@ devices##some (Js.wrap_callback (cb "videoinput")) in
-      Lwt.return_ok ())
-    (fun exn -> Lwt.return_error @@ exn_to_string exn)
+  let (thread : (mediaStream Js.t, string) Lwt_result.t) =
+    Lwt.try_bind (fun () -> Promise.to_lwt @@ media_devices##enumerateDevices)
+      (fun devices ->
+        let cb (kind : string) = fun (device : mediaDeviceInfo Js.t) _ _ ->
+          Js.bool @@ String.equal (Js.to_string device##.kind) kind in
+        let (audio_exists : bool) =
+          Js.to_bool @@ devices##some (Js.wrap_callback (cb "audioinput")) in
+        let (video_exists : bool) =
+          Js.to_bool @@ devices##some (Js.wrap_callback (cb "videoinput")) in
+        (* Check whether a missing device is really a problem *)
+        let need_audio = Media.is_track_send_required media_ext.media.audio in
+        let need_video = Media.is_track_send_required media_ext.media.video in
+        let audio_fail = need_audio && audio_send && not audio_exists in
+        let video_fail = need_video && video_send && not video_exists in
+        if video_fail && audio_fail
+        then Lwt.return_error "No capture device found"
+        else if audio_fail
+        then Lwt.return_error "Audio capture is required, \
+                               but no capture device found"
+        else if video_fail
+        then Lwt.return_error "Video capture is required, \
+                               but no capture device found"
+        else (
+          let (constraints : mediaStreamConstraints Js.t) =
+            Js.Unsafe.obj [||] in
+          let audio =
+            if audio_exists && not media_ext.keep_audio
+            then begin match media_ext.media.audio.send with
+                 | `Constraints x -> wrap_constraints x
+                 | `Bool x -> wrap_bool x
+                 end
+            else wrap_bool false in
+          let video =
+            if video_exists && not media_ext.keep_video
+            then begin match media_ext.media.video.send with
+                 | `Constraints x -> wrap_constraints x
+                 | `Bool x -> wrap_bool x
+                 | `Resolution x ->
+                    wrap_constraints (make_video_constraints x)
+                 | `Window _ | `Screen _ -> wrap_bool false
+                 end
+            else wrap_bool false in
+          constraints##.audio := audio;
+          constraints##.video := video;
+          Log.ign_debug ~inspect:constraints "getUserMedia constraints";
+          Lwt.try_bind (fun () ->
+              Promise.to_lwt @@ media_devices##getUserMedia constraints)
+            Lwt.return_ok
+            (Lwt.return_error % exn_to_string)))
+      (Lwt.return_error % exn_to_string) in
+  thread
+  >|= (fun x -> Option.iter (fun f -> f false) t.on_consent_dialog; x)
 
-let get_user_media_video (media_ext : Media.t_ext) (t : t) =
-  match media_ext.media.video.typ with
-  | Audio _ -> assert false
-  | Video `Resolution res ->
-     let width, height = Media.resolution_to_video_size res in
-     ignore width; ignore height;
-     Lwt.return_error ""
-  | Video (`Screen fr as src) | Video (`Window fr as src) ->
+let get_user_media ?jsep ~simulcast (media_ext : Media.t_ext) (t : t) =
+  Option.iter (fun f -> f true) t.on_consent_dialog;
+  match media_ext.media.video.send with
+  | (`Screen fr as src) | (`Window fr as src) ->
      let fr = match fr with None -> 3 | Some x -> x in
      let source = match src with
        | `Screen _ -> "screen" | `Window _ -> "window" in
      handle_screenshare source fr media_ext t
-  | _ -> Lwt.return_error ""
-
-let get_user_media ~simulcast (media : Media.t) (t : t) =
-  ignore simulcast;
-  ignore media;
-  Option.iter (fun f -> f true) t.on_consent_dialog;
-  Lwt.return_error ""
+  | `Resolution _ -> handle_media media_ext t
+  | `Constraints _ -> handle_media media_ext t
+  | `Bool false ->
+     let media_ext =
+       if simulcast && Option.is_none jsep
+       then (
+         let send = `Resolution `HD in
+         let video = { media_ext.media.video with send } in
+         let media = { media_ext.media with video } in
+         Media.{ media_ext with media })
+       else media_ext in
+     handle_media media_ext t
+  | `Bool true ->
+     let send = `Resolution `SD in
+     let video = { media_ext.media.video with send } in
+     let media = { media_ext.media with video } in
+     let media_ext = Media.{ media_ext with media } in
+     handle_media media_ext t

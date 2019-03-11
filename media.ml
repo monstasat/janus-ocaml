@@ -1,23 +1,19 @@
+open Js_of_ocaml
 open Adapter
-
-type dir =
-  { send : bool
-  ; recv : bool
-  }
+open Webrtc
 
 type upd = Add | Remove | Replace
 
-type common_src =
+type send =
   [ `Bool of bool
-  | `Dir of dir
+  | `Constraints of mediaTrackConstraints Js.t
   ]
 
 type video =
-  [ common_src
+  [ send
   | `Resolution of resolution
   | `Screen of int option (* screenshare frame rate *)
   | `Window of int option (* screenshare frame rate *)
-  | `Device of video_device
   ]
 and resolution =
   [ `Low
@@ -28,11 +24,6 @@ and resolution =
   | `FullHD
   | `UHD
   ]
-and video_device =
-  { device_id : int
-  ; width : int
-  ; height : int
-  }
 
 let resolution_to_video_size : resolution -> int * int = function
   | `Low -> 320, 240 (* Small resolution, 4:3 *)
@@ -43,22 +34,14 @@ let resolution_to_video_size : resolution -> int * int = function
   | `FullHD -> 1920, 1080 (* Full HD resolution is only 16:9 *)
   | `UHD -> 3840, 2160 (* 4K resolution is only 16:9 *)
 
-type audio =
-  [ common_src
-  | `Device of audio_device
-  ]
-and audio_device =
-  { device_id : int
-  }
+type audio = send
 
-type track =
+type 'a track =
   { fail_if_not_available : bool
   ; update : upd option
-  ; typ : track_type
+  ; send : 'a
+  ; recv : bool
   }
-and track_type =
-  | Video of video
-  | Audio of audio
 
 type data =
   [ `Bool of bool
@@ -73,24 +56,47 @@ and data_options =
   ; id : int option
   }
 
-let make_audio ?(fail_if_not_available = false) ?(update : upd option)
-      (src : audio) : track =
-  { fail_if_not_available
-  ; update
-  ; typ = Audio src
-  }
-
-let make_video ?(fail_if_not_available = false) ?(update : upd option)
-      (src : video) : track =
-  { fail_if_not_available
-  ; update
-  ; typ = Video src
-  }
-
 type t =
-  { audio : track
-  ; video : track
+  { audio : audio track
+  ; video : video track
   ; data : data
+  }
+
+let make_audio ?(fail_if_not_available = false)
+      ?(update : upd option)
+      ?(recv = true)
+      ?(send = `Bool true)
+      () : audio track =
+  { fail_if_not_available
+  ; update
+  ; send
+  ; recv
+  }
+
+let make_video ?(fail_if_not_available = false)
+      ?(update : upd option)
+      ?(recv = true)
+      ?(send = `Bool true)
+      () : video track =
+  { fail_if_not_available
+  ; update
+  ; send
+  ; recv
+  }
+
+let make ?audio ?video ?data () : t =
+  let video = match video with
+    | Some x -> x
+    | None -> make_video () in
+  let audio = match audio with
+    | Some x -> x
+    | None -> make_audio () in
+  let data = match data with
+    | Some x -> x
+    | None -> `Bool false in
+  { video
+  ; audio
+  ; data
   }
 
 type t_ext =
@@ -113,19 +119,20 @@ let is_data_enabled ?(media : t option) () : bool =
         | `Bool x -> x
         | `Options _ -> true
 
-let is_track_send_enabled (track : track) : bool =
-  match track.typ with
-  | Video `Bool x | Audio `Bool x -> x
-  | Video `Dir x | Audio `Dir x -> x.send
+let is_track_send_enabled (track : 'a track) : bool =
+  match track.send with
+  | `Bool x -> x
   | _ -> true
 
-let is_track_recv_enabled (track : track) : bool =
-  match track.typ with
-  | Video `Bool x | Audio `Bool x -> x
-  | Video `Dir x | Audio `Dir x -> x.recv
-  | _ -> true
+let is_track_send_required (track : 'a track) : bool =
+  match track.send with
+  | `Bool false -> false
+  | _ -> track.fail_if_not_available
 
-let should_remove_track (track : track) : bool =
+let is_track_recv_enabled (track : 'a track) : bool =
+  track.recv
+
+let should_remove_track (track : 'a track) : bool =
   match track.update with
   | Some Remove -> true
   | None | Some _ -> false

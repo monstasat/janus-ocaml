@@ -31,22 +31,23 @@ let find_transceivers (x : _RTCRtpTransceiver Js.t Js.js_array Js.t) =
            if String.equal "audio" (Js.to_string s##.kind)
               && String.equal "audio" (Js.to_string r##.kind)
            then Some tr else None
-        | _ -> None in
+        | _ -> atr' in
       let vtr = match atr, vtr', strack, rtrack with
         | None, None, Some s, Some r ->
            if String.equal "video" (Js.to_string s##.kind)
               && String.equal "video" (Js.to_string r##.kind)
            then Some tr else None
-        | _ -> None in
+        | _ -> vtr' in
       atr, vtr in
     x##reduce_init (Js.wrap_callback cb) (None, None)
 
-let handle_transceiver (transceiver : _RTCRtpTransceiver Js.t option)
+let handle_transceiver ~(typ:[`Audio | `Video])
+      (transceiver : _RTCRtpTransceiver Js.t option)
       (pc : _RTCPeerConnection Js.t)
-      (track : Media.track) =
-  let kind = match track.typ with
-    | Audio _ -> "audio"
-    | Video _ -> "video" in
+      (track : 'a Media.track) =
+  let kind = match typ with
+    | `Audio -> "audio"
+    | `Video -> "video" in
   match Media.is_track_send_enabled track,
         Media.is_track_recv_enabled track,
         transceiver with
@@ -142,9 +143,9 @@ let create_offer_ ?(ice_restart = false) ?simulcast
     let audio_transceiver, video_transceiver =
       find_transceivers pc##getTransceivers in
     (* Handle audio (and related changes, if any) *)
-    handle_transceiver audio_transceiver pc media.audio;
+    handle_transceiver ~typ:`Audio audio_transceiver pc media.audio;
     (* Handle video (and related changes, if any) *)
-    handle_transceiver video_transceiver pc media.video)
+    handle_transceiver ~typ:`Video video_transceiver pc media.video)
   else (
     let audio_recv = Media.is_track_recv_enabled media.audio in
     let video_recv = Media.is_track_recv_enabled media.video in
@@ -196,9 +197,9 @@ let create_answer_ ?simulcast (media : Media.t) (t : t)
     let audio_transceiver, video_transceiver =
       find_transceivers pc##getTransceivers in
     (* Handle audio (and related changes, if any) *)
-    handle_transceiver audio_transceiver pc media.audio;
+    handle_transceiver ~typ:`Audio audio_transceiver pc media.audio;
     (* Handle video (and related changes, if any) *)
-    handle_transceiver video_transceiver pc media.video)
+    handle_transceiver ~typ:`Video video_transceiver pc media.video)
   else if check_browser ~browser:"firefox" ()
           || check_browser ~browser:"edge" ()
   then (
@@ -241,16 +242,17 @@ let create_answer_ ?simulcast (media : Media.t) (t : t)
     (fun e -> Lwt.return_error @@ exn_to_string e)
 
 let update_stream
-      (media : Media.track)
+      ~(typ:[`Audio | `Video])
+      (media : 'a Media.track)
       (stream : mediaStream Js.t)
       (track : mediaStreamTrack Js.t)
       (pc : _RTCPeerConnection Js.t) =
   stream##addTrack track;
   let replace = match media.update with
     | Some Replace -> true | _ -> false in
-  let kind = match media.typ with
-    | Audio _ -> "audio"
-    | Video _ -> "video" in
+  let kind = match typ with
+    | `Audio -> "audio"
+    | `Video -> "video" in
   if replace
      && check_browser ~browser:"firefox" ()
      && check_browser ~browser:"chrome" ~ver:72 ~ver_cmp:(>=) ()
@@ -343,7 +345,7 @@ let streams_done ?(jsep : _RTCSessionDescriptionInit Js.t option)
         let send_en = Media.is_track_send_enabled media.audio in
         match update, media.audio.update, send_en with
         | true, Some Add, _ | true, Some Replace, _ | false, _, true  ->
-           update_stream media.audio my_stream track pc
+           update_stream ~typ:`Audio media.audio my_stream track pc
         | _ -> ()
      end;
      let (video_track : mediaStreamTrack Js.t option) = match stream with
@@ -355,7 +357,7 @@ let streams_done ?(jsep : _RTCSessionDescriptionInit Js.t option)
         let send_en = Media.is_track_send_enabled media.video in
         match update, media.video.update, send_en with
         | true, Some Add, _ | true, Some Replace, _ | false, _, true  ->
-           update_stream media.video my_stream track pc
+           update_stream ~typ:`Video media.video my_stream track pc
         | _ -> ()
      end;
   end;
@@ -413,8 +415,7 @@ let replace_track (kind : string) (pc : _RTCPeerConnection Js.t) =
                Log.ign_info_f ~inspect:sender "Removing %s sender:" kind;
                pc##removeTrack sender));
          aux tl) in
-  let senders = Array.to_list @@ Js.to_array pc##getSenders in
-  aux senders
+  aux @@ Array.to_list @@ Js.to_array pc##getSenders
 
 let remove_or_replace_tracks (media : Media.t)
       (local_stream : mediaStream Js.t option)
@@ -432,8 +433,10 @@ let remove_or_replace_tracks (media : Media.t)
      Option.iter (replace_track "video") pc
   end
 
-let update_track (local_stream : mediaStream Js.t option)
-      (track : Media.track) : (bool * Media.track, string) result =
+let update_track ~(typ:[`Audio | `Video])
+      (local_stream : mediaStream Js.t option)
+      (track : 'a Media.track)
+    : (bool * 'a Media.track, string) result =
   match local_stream with
   | None ->
      (* No media stream: if we were asked to replace,
@@ -444,9 +447,9 @@ let update_track (local_stream : mediaStream Js.t option)
      | _ -> Ok (false, track)
      end
   | Some s ->
-     let kind, tracks = match track.typ with
-       | Audio _ -> "audio", s##getAudioTracks
-       | Video _ -> "video", s##getVideoTracks in
+     let kind, tracks = match typ with
+       | `Audio -> "audio", s##getAudioTracks
+       | `Video -> "video", s##getVideoTracks in
      match tracks##.length with
      | 0 ->
         (* No track: if we were asked to replace, it's actually an 'add' *)
@@ -481,11 +484,11 @@ let check_peer_connection ?stream (media : Media.t) (t : t) =
   | Some (_ : _RTCPeerConnection Js.t) ->
      Log.ign_info "Updating existing media session";
      (* Check if there's anything to add/remove/replace, or if we
-          can go directly to preparing the new SDP offer or answer *)
+        can go directly to preparing the new SDP offer or answer *)
      match stream with
      | Some s ->
         (* External stream: is this the same as the one
-             we were using before? *)
+           we were using before? *)
         if not (Option.equal ~eq:(==) (Some s) t.webrtc.local_stream)
         then Log.ign_info "Renegotiation involves a new external stream";
         Ok { update = true
@@ -497,10 +500,10 @@ let check_peer_connection ?stream (media : Media.t) (t : t) =
         Result.Infix.(
          let local_stream = t.webrtc.local_stream in
          (* Check if there are changes on audio*)
-         update_track local_stream media.audio
+         update_track ~typ:`Audio local_stream media.audio
          (* Check if there are changes on video *)
          >>= fun (keep_audio, audio) ->
-         update_track local_stream media.video
+         update_track ~typ:`Video local_stream media.video
          >|= fun (keep_video, video) ->
          let media = { media with audio; video } in
          Media.{ update = true
@@ -554,7 +557,9 @@ let prepare_webrtc ?(simulcast = false) ?(trickle = true)
     | None ->
        if Media.is_track_send_enabled media.audio
           || Media.is_track_send_enabled media.video
-       then User_media.get_user_media ~simulcast media t
+       then
+         User_media.get_user_media ?jsep ~simulcast media_ext t
+         >>= fun stream -> streams_done ?jsep ~stream media_ext t
        else
          (* No need to do a getUserMedia, create offer/answer right away *)
          streams_done ?jsep ?stream media_ext t)
@@ -616,32 +621,16 @@ let typ (t : t) : typ =
  * let bitrate (t : t) : unit =
  *   ignore t *)
 
-let create_offer ?simulcast ?trickle ?stream
-      ?audio ?video ?data (t : t) =
-  let audio = match audio with
+let create_offer ?simulcast ?trickle ?stream ?media (t : t) =
+  let media = match media with
     | Some x -> x
-    | None -> Media.make_audio (`Bool true) in
-  let video = match video with
-    | Some x -> x
-    | None -> Media.make_video (`Bool true) in
-  let data = match data with
-    | Some x -> x
-    | None -> `Bool false in
-  let media = Media.{ audio; video; data } in
+    | None -> Media.make () in
   prepare_webrtc ?simulcast ?trickle ?stream media t
 
-let create_answer ?simulcast ?trickle ?jsep ?stream
-      ?audio ?video ?data (t : t) =
-  let audio = match audio with
+let create_answer ?simulcast ?trickle ?jsep ?stream ?media (t : t) =
+  let media = match media with
     | Some x -> x
-    | None -> Media.make_audio (`Bool true) in
-  let video = match video with
-    | Some x -> x
-    | None -> Media.make_video (`Bool true) in
-  let data = match data with
-    | Some x -> x
-    | None -> `Bool false in
-  let media = Media.{ audio; video; data } in
+    | None -> Media.make () in
   prepare_webrtc ?simulcast ?trickle ?stream ?jsep media t
 
 let handle_remote_jsep (jsep : _RTCSessionDescriptionInit Js.t)

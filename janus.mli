@@ -7,27 +7,21 @@ module Webrtc = Webrtc
 
 module Media : sig
 
-  type dir =
-    { send : bool
-    ; recv : bool
-    }
-
   type upd =
     | Add
     | Remove
     | Replace
 
-  type common_src =
+  type send =
     [ `Bool of bool
-    | `Dir of dir
+    | `Constraints of mediaTrackConstraints Js.t
     ]
 
   type video =
-    [ common_src
+    [ send
     | `Resolution of resolution
     | `Screen of int option (* screenshare frame rate *)
     | `Window of int option (* screenshare frame rate *)
-    | `Device of video_device
     ]
   and resolution =
     [ `Low
@@ -38,28 +32,15 @@ module Media : sig
     | `FullHD
     | `UHD
     ]
-  and video_device =
-    { device_id : int
-    ; width : int
-    ; height : int
-    }
 
-  type audio =
-    [ common_src
-    | `Device of audio_device
-    ]
-  and audio_device =
-    { device_id : int
-    }
+  type audio = send
 
-  type track =
+  type 'a track =
     { fail_if_not_available : bool
     ; update : upd option
-    ; typ : track_type
+    ; send : 'a
+    ; recv : bool
     }
-  and track_type =
-    | Video of video
-    | Audio of audio
 
   type data =
     [ `Bool of bool
@@ -74,8 +55,30 @@ module Media : sig
     ; id : int option
     }
 
-  val make_audio : ?fail_if_not_available:bool -> ?update:upd -> audio -> track
-  val make_video : ?fail_if_not_available:bool -> ?update:upd -> video -> track
+  type t =
+    { audio : audio track
+    ; video : video track
+    ; data : data
+    }
+
+  val make_audio : ?fail_if_not_available:bool ->
+                   ?update:upd ->
+                   ?recv:bool ->
+                   ?send:audio ->
+                   unit ->
+                   audio track
+  val make_video : ?fail_if_not_available:bool ->
+                   ?update:upd ->
+                   ?recv:bool ->
+                   ?send:video ->
+                   unit ->
+                   video track
+
+  val make : ?audio:audio track ->
+             ?video:video track ->
+             ?data:data ->
+             unit ->
+             t
 
 end
 
@@ -128,6 +131,8 @@ module Plugin : sig
     ; uplink : bool
     }
 
+  val ice_connection_state_to_string : ice_connection_state -> string
+
   val id : t -> int
 
   val typ : t -> typ
@@ -142,9 +147,7 @@ module Plugin : sig
     ?simulcast:bool ->
     ?trickle:bool ->
     ?stream:mediaStream Js.t ->
-    ?audio:Media.track ->
-    ?video:Media.track ->
-    ?data:Media.data ->
+    ?media:Media.t ->
     t ->
     (_RTCSessionDescription Js.t option, string) Lwt_result.t
 
@@ -153,9 +156,7 @@ module Plugin : sig
     ?trickle:bool ->
     ?jsep:_RTCSessionDescriptionInit Js.t ->
     ?stream:mediaStream Js.t ->
-    ?audio:Media.track ->
-    ?video:Media.track ->
-    ?data:Media.data ->
+    ?media:Media.t ->
     t ->
     (_RTCSessionDescription Js.t option, string) Lwt_result.t
 
