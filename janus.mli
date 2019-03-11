@@ -61,6 +61,11 @@ module Media : sig
     ; data : data
     }
 
+  type source =
+    [ `Stream of mediaStream Js.t
+    | `Create of t
+    ]
+
   val make_audio : ?fail_if_not_available:bool ->
                    ?update:upd ->
                    ?recv:bool ->
@@ -146,17 +151,15 @@ module Plugin : sig
   val create_offer :
     ?simulcast:bool ->
     ?trickle:bool ->
-    ?stream:mediaStream Js.t ->
-    ?media:Media.t ->
+    Media.source ->
     t ->
     (_RTCSessionDescription Js.t option, string) Lwt_result.t
 
   val create_answer :
     ?simulcast:bool ->
     ?trickle:bool ->
-    ?jsep:_RTCSessionDescriptionInit Js.t ->
-    ?stream:mediaStream Js.t ->
-    ?media:Media.t ->
+    jsep:_RTCSessionDescriptionInit Js.t ->
+    Media.source ->
     t ->
     (_RTCSessionDescription Js.t option, string) Lwt_result.t
 

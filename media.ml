@@ -62,6 +62,11 @@ type t =
   ; data : data
   }
 
+type source =
+  [ `Stream of mediaStream Js.t
+  | `Create of t
+  ]
+
 let make_audio ?(fail_if_not_available = false)
       ?(update : upd option)
       ?(recv = true)
@@ -97,13 +102,6 @@ let make ?audio ?video ?data () : t =
   { video
   ; audio
   ; data
-  }
-
-type t_ext =
-  { update : bool
-  ; keep_audio : bool
-  ; keep_video : bool
-  ; media : t
   }
 
 let is_data_enabled ?(media : t option) () : bool =

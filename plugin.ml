@@ -309,10 +309,24 @@ let handle_cached_candidates
     candidates##forEach (Js.wrap_callback cb);
     candidates##.length := 0)
 
+let add_tracks (stream : mediaStream Js.t) (pc : _RTCPeerConnection Js.t) =
+  Log.ign_info "Adding local stream";
+  let tracks = stream##getTracks in
+  let cb = fun (track : mediaStreamTrack Js.t) _ _ ->
+    Log.ign_info ~inspect:track "Adding local track:";
+    pc##addTrack track stream in
+  tracks##forEach (Js.wrap_callback cb)
+
 let streams_done ?(jsep : _RTCSessionDescriptionInit Js.t option)
       ?(stream : mediaStream Js.t option)
-      ({ update; media; _ } : Media.t_ext)
+      (media : Media.t)
       (t : t) =
+  let update = Option.is_some t.webrtc.pc in
+  Log.ign_debug ~inspect:(Js.Opt.option stream) "streams done:";
+  Option.iter (fun (s : mediaStream Js.t) ->
+      Log.ign_debug ~inspect:s##getAudioTracks " -- Audio tracks:";
+      Log.ign_debug ~inspect:s##getVideoTracks " -- Video tracks")
+    stream;
   (* If we still need to create a PeerConnection, let's do that *)
   let (pc : _RTCPeerConnection Js.t) = match t.webrtc.pc with
     | Some pc -> pc
@@ -321,22 +335,19 @@ let streams_done ?(jsep : _RTCSessionDescriptionInit Js.t option)
        t.webrtc <- { t.webrtc with pc = Some pc };
        Peer_connection.init t pc;
        pc in
+  (* We're now capturing the new stream:
+     check if we're updating or it's a new thing *)
   begin match t.webrtc.local_stream, update, t.webrtc.stream_external with
   | None, _, _ | _, false, _ | _, _, true ->
      t.webrtc <- { t.webrtc with local_stream = stream };
-     begin match stream with
+     begin match t.webrtc.local_stream with
      | None -> ()
-     | Some stream ->
-        Log.ign_info "Adding local stream";
-        let tracks = stream##getTracks in
-        let cb = fun (track : mediaStreamTrack Js.t) _ _ ->
-          Log.ign_info ~inspect:track "Adding local track:";
-          pc##addTrack track stream in
-        tracks##forEach (Js.wrap_callback cb)
+     | Some stream -> add_tracks stream pc
      end
   | Some my_stream, _, _ ->
      (* We only need to update the existing stream *)
-     let (audio_track : mediaStreamTrack Js.t option) = match stream with
+     let (audio_track : mediaStreamTrack Js.t option) =
+       match stream with
        | None -> None
        | Some s -> array_get s##getAudioTracks 0 in
      begin match audio_track with
@@ -348,7 +359,8 @@ let streams_done ?(jsep : _RTCSessionDescriptionInit Js.t option)
            update_stream ~typ:`Audio media.audio my_stream track pc
         | _ -> ()
      end;
-     let (video_track : mediaStreamTrack Js.t option) = match stream with
+     let (video_track : mediaStreamTrack Js.t option) =
+       match stream with
        | None -> None
        | Some s -> array_get s##getVideoTracks 0 in
      begin match video_track with
@@ -472,97 +484,72 @@ let update_track ~(typ:[`Audio | `Video])
         | None -> Ok (Media.is_track_send_enabled track, track)
         end
 
-let check_peer_connection ?stream (media : Media.t) (t : t) =
-  (* Are we updating a session? *)
-  match t.webrtc.pc with
-  | None ->
-     (* Nope, no PeerConnection *)
-     Ok Media.{ update = false
-              ; keep_audio = false
-              ; keep_video = false
-              ; media }
-  | Some (_ : _RTCPeerConnection Js.t) ->
-     Log.ign_info "Updating existing media session";
-     (* Check if there's anything to add/remove/replace, or if we
-        can go directly to preparing the new SDP offer or answer *)
-     match stream with
-     | Some s ->
-        (* External stream: is this the same as the one
-           we were using before? *)
-        if not (Option.equal ~eq:(==) (Some s) t.webrtc.local_stream)
-        then Log.ign_info "Renegotiation involves a new external stream";
-        Ok { update = true
-           ; keep_audio = false
-           ; keep_video = false
-           ; media }
-     | None ->
-        (* FIXME add data channels *)
-        Result.Infix.(
-         let local_stream = t.webrtc.local_stream in
-         (* Check if there are changes on audio*)
-         update_track ~typ:`Audio local_stream media.audio
-         (* Check if there are changes on video *)
-         >>= fun (keep_audio, audio) ->
-         update_track ~typ:`Video local_stream media.video
-         >|= fun (keep_video, video) ->
-         let media = { media with audio; video } in
-         Media.{ update = true
-               ; keep_audio
-               ; keep_video
-               ; media })
-
 let prepare_webrtc ?(simulcast = false) ?(trickle = true)
-      ?(stream : mediaStream Js.t option)
       ?(jsep : _RTCSessionDescriptionInit Js.t option)
-      (media : Media.t)
+      (source : Media.source)
       (t : t) =
   t.webrtc <- { t.webrtc with trickle };
-  check_peer_connection ?stream media t
-  |> Lwt_result.lift
-  >>= fun ({ media; update; keep_audio; keep_video } as media_ext) ->
-  (* If we're updating and keeping all tracks,
-     let's skip the getUserMedia part *)
-  if update
-     && Media.is_track_send_enabled media.audio && keep_audio
-     && Media.is_track_send_enabled media.video && keep_video
-  then streams_done ?jsep ?stream:t.webrtc.local_stream media_ext t
-  else (
-    (* If we're updating, check if we need to
-       remove/replace one of the tracks *)
-    if update && not t.webrtc.stream_external
-    then remove_or_replace_tracks media t.webrtc.local_stream t.webrtc.pc;
-    (* Was a MediaStream object passed, or do we need to take care of that? *)
-    match stream with
-    | Some (stream : mediaStream Js.t) ->
-       Log.ign_info "MediaStream provided by the application";
-       Log.ign_debug ~inspect:stream "";
-       begin match update, t.webrtc.local_stream, t.webrtc.stream_external with
-       | false, _, _ | _, None, _ | _, _, true -> ()
-       | true, Some (local : mediaStream Js.t), false ->
-          if local != stream then (
-            (* We're replacing a stream we captured
-             ourselves with an external one *)
-            (try
-               (* Try a MediaStreamTrack.stop() for each track *)
-               let tracks = local##getTracks in
-               let cb = fun (track : mediaStreamTrack Js.t) _ _ ->
-                 Log.ign_debug ~inspect:track "";
-                 track##stop in
-               tracks##forEach (Js.wrap_callback cb)
-             with _ -> ());
-            t.webrtc <- { t.webrtc with local_stream = None })
-       end;
-       t.webrtc <- { t.webrtc with stream_external = true };
-       streams_done ?jsep ~stream media_ext t
-    | None ->
-       if Media.is_track_send_enabled media.audio
-          || Media.is_track_send_enabled media.video
+  match source with
+  | `Stream (stream : mediaStream Js.t) ->
+     Log.ign_info "MediaStream provided by the application";
+     Log.ign_debug ~inspect:stream "";
+     if Option.is_some t.webrtc.pc
+        && not (Option.equal ~eq:(==) (Some stream) t.webrtc.local_stream)
+     then Log.ign_info "Renegotiation involves a new external stream";
+     (* If we're updating, let's check if we need to release the previous stream *)
+     begin match t.webrtc.pc,
+                 t.webrtc.local_stream,
+                 t.webrtc.stream_external with
+     | Some _, Some (local : mediaStream Js.t), false ->
+        (* We're updating, we have a previous stream and it is not external *)
+        if local != stream then (
+          (* We're replacing a stream we captured ourselves with an external one *)
+          (try
+             (* Try a MediaStreamTrack.stop() for each track *)
+             let tracks = local##getTracks in
+             let cb = fun (track : mediaStreamTrack Js.t) _ _ ->
+               Log.ign_debug ~inspect:track "";
+               track##stop in
+             tracks##forEach (Js.wrap_callback cb)
+           with _ -> ());
+          t.webrtc <- { t.webrtc with local_stream = None })
+     | _ -> ()
+     end;
+     t.webrtc <- { t.webrtc with stream_external = true };
+     (* FIXME we really need it? *)
+     let (media : Media.t) =
+       Media.{ video = make_video ~send:(`Bool true) ()
+             ; audio = make_audio ~send:(`Bool true) ()
+             ; data = `Bool false } in
+     streams_done ?jsep ~stream media t
+  | `Create ({ audio; video; _ } as media : Media.t) ->
+     Result.Infix.(
+      let local_stream = t.webrtc.local_stream in
+      (* Check if there are changes on audio*)
+      update_track ~typ:`Audio local_stream media.audio
+      (* Check if there are changes on video *)
+      >>= fun (keep_audio, audio) ->
+      update_track ~typ:`Video local_stream media.video
+      >|= fun (keep_video, video) ->
+      let media = { media with audio; video } in
+      keep_video, keep_audio, media)
+     |> Lwt_result.lift
+     >>= fun (keep_audio, keep_video, media) ->
+     (* If we're keeping all tracks, let's skip the getUserMedia part *)
+     if keep_audio && keep_video
+     then streams_done ?jsep ?stream:t.webrtc.local_stream media t
+     else (
+       (* Check if we need to remove/replace one of the tracks *)
+       remove_or_replace_tracks media t.webrtc.local_stream t.webrtc.pc;
+       if Media.(is_track_send_enabled audio || is_track_send_enabled video)
        then
-         User_media.get_user_media ?jsep ~simulcast media_ext t
-         >>= fun stream -> streams_done ?jsep ~stream media_ext t
+         User_media.get_user_media ?jsep
+           ~keep_audio ~keep_video
+           ~simulcast media t
+         >>= fun stream -> streams_done ?jsep ~stream media t
        else
          (* No need to do a getUserMedia, create offer/answer right away *)
-         streams_done ?jsep ?stream media_ext t)
+         streams_done ?jsep media t)
 
 let prepare_webrtc_peer (jsep : _RTCSessionDescriptionInit Js.t)
       (t : t) : (unit, string) Lwt_result.t =
@@ -621,17 +608,16 @@ let typ (t : t) : typ =
  * let bitrate (t : t) : unit =
  *   ignore t *)
 
-let create_offer ?simulcast ?trickle ?stream ?media (t : t) =
-  let media = match media with
-    | Some x -> x
-    | None -> Media.make () in
-  prepare_webrtc ?simulcast ?trickle ?stream media t
+let create_offer ?simulcast ?trickle
+      (source : Media.source)
+      (t : t) =
+  prepare_webrtc ?simulcast ?trickle source t
 
-let create_answer ?simulcast ?trickle ?jsep ?stream ?media (t : t) =
-  let media = match media with
-    | Some x -> x
-    | None -> Media.make () in
-  prepare_webrtc ?simulcast ?trickle ?stream ?jsep media t
+let create_answer ?simulcast ?trickle
+      ~(jsep : _RTCSessionDescriptionInit Js.t)
+      (source : Media.source)
+      (t : t) =
+  prepare_webrtc ?simulcast ?trickle ~jsep source t
 
 let handle_remote_jsep (jsep : _RTCSessionDescriptionInit Js.t)
       (t : t) : (unit, string) Lwt_result.t =

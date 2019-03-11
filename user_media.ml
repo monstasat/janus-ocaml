@@ -35,9 +35,10 @@ let get_screen_media ?(use_audio = false)
       else fin (Ok stream))
     (fun exn -> fin (Error exn))
 
-let handle_screenshare (source : string)
+let handle_screenshare ~(keep_audio : bool)
+      (source : string)
       (frame_rate : int)
-      (media_ext : Media.t_ext)
+      (media : Media.t)
       (t : t) =
   let navigator = Js.Unsafe.coerce Dom_html.window##.navigator in
   if Js.Optdef.test navigator##.mediaDevices
@@ -56,8 +57,7 @@ let handle_screenshare (source : string)
         Promise.to_lwt @@ media_devices##getDisplayMedia constraints)
       (fun (stream : mediaStream Js.t) ->
         Option.iter (fun f -> f false) t.on_consent_dialog;
-        if Media.is_track_send_enabled media_ext.media.audio
-           && not media_ext.keep_audio
+        if Media.is_track_send_enabled media.audio && not keep_audio
         then (
           let (c : mediaStreamConstraints Js.t) = Js.Unsafe.obj [||] in
           c##.video := wrap_bool false;
@@ -100,8 +100,7 @@ let handle_screenshare (source : string)
         let video = Js.Unsafe.(obj [|"mandatory", inject mandatory|]) in
         let audio =
           Js.Unsafe.inject
-          @@ (Media.is_track_send_enabled media_ext.media.audio
-              && not media_ext.keep_audio) in
+          @@ (Media.is_track_send_enabled media.audio && not keep_audio) in
         let constraints = Js.Unsafe.(
             obj [| "video", inject video
                  ; "audio", inject audio |]) in
@@ -120,8 +119,7 @@ let handle_screenshare (source : string)
       let audio =
         Js.Unsafe.inject
         @@ Js.bool
-        @@ (Media.is_track_send_enabled media_ext.media.audio
-            && not media_ext.keep_audio) in
+        @@ (Media.is_track_send_enabled media.audio && not keep_audio) in
       let (c : mediaStreamConstraints Js.t) = Js.Unsafe.(
           obj [| "audio", inject audio
                ; "video", inject video |]) in
@@ -169,9 +167,10 @@ let make_video_constraints (res : Media.resolution)
   Log.ign_debug ~inspect:video "Adding video constraint:";
   video
 
-let handle_media (media_ext : Media.t_ext) (t : t) =
-  let audio_send = Media.is_track_send_enabled media_ext.media.audio in
-  let video_send = Media.is_track_send_enabled media_ext.media.video in
+let handle_media ~(keep_audio : bool) ~(keep_video : bool)
+      (media : Media.t) (t : t) =
+  let audio_send = Media.is_track_send_enabled media.audio in
+  let video_send = Media.is_track_send_enabled media.video in
   let (media_devices : mediaDevices Js.t) =
     (Js.Unsafe.coerce Dom_html.window##.navigator)##.mediaDevices in
   let (thread : (mediaStream Js.t, string) Lwt_result.t) =
@@ -184,8 +183,8 @@ let handle_media (media_ext : Media.t_ext) (t : t) =
         let (video_exists : bool) =
           Js.to_bool @@ devices##some (Js.wrap_callback (cb "videoinput")) in
         (* Check whether a missing device is really a problem *)
-        let need_audio = Media.is_track_send_required media_ext.media.audio in
-        let need_video = Media.is_track_send_required media_ext.media.video in
+        let need_audio = Media.is_track_send_required media.audio in
+        let need_video = Media.is_track_send_required media.video in
         let audio_fail = need_audio && audio_send && not audio_exists in
         let video_fail = need_video && video_send && not video_exists in
         if video_fail && audio_fail
@@ -200,15 +199,15 @@ let handle_media (media_ext : Media.t_ext) (t : t) =
           let (constraints : mediaStreamConstraints Js.t) =
             Js.Unsafe.obj [||] in
           let audio =
-            if audio_exists && not media_ext.keep_audio
-            then begin match media_ext.media.audio.send with
+            if audio_exists && not keep_audio
+            then begin match media.audio.send with
                  | `Constraints x -> wrap_constraints x
                  | `Bool x -> wrap_bool x
                  end
             else wrap_bool false in
           let video =
-            if video_exists && not media_ext.keep_video
-            then begin match media_ext.media.video.send with
+            if video_exists && not keep_video
+            then begin match media.video.send with
                  | `Constraints x -> wrap_constraints x
                  | `Bool x -> wrap_bool x
                  | `Resolution x ->
@@ -227,29 +226,30 @@ let handle_media (media_ext : Media.t_ext) (t : t) =
   thread
   >|= (fun x -> Option.iter (fun f -> f false) t.on_consent_dialog; x)
 
-let get_user_media ?jsep ~simulcast (media_ext : Media.t_ext) (t : t) =
+let get_user_media ?jsep ~(simulcast : bool)
+      ~(keep_audio : bool)
+      ~(keep_video : bool)
+      (media : Media.t) (t : t) =
   Option.iter (fun f -> f true) t.on_consent_dialog;
-  match media_ext.media.video.send with
+  match media.video.send with
   | (`Screen fr as src) | (`Window fr as src) ->
      let fr = match fr with None -> 3 | Some x -> x in
      let source = match src with
        | `Screen _ -> "screen" | `Window _ -> "window" in
-     handle_screenshare source fr media_ext t
-  | `Resolution _ -> handle_media media_ext t
-  | `Constraints _ -> handle_media media_ext t
+     handle_screenshare ~keep_audio source fr media t
+  | `Resolution _ -> handle_media ~keep_audio ~keep_video media t
+  | `Constraints _ -> handle_media ~keep_audio ~keep_video media t
   | `Bool false ->
-     let media_ext =
+     let media =
        if simulcast && Option.is_none jsep
        then (
          let send = `Resolution `HD in
-         let video = { media_ext.media.video with send } in
-         let media = { media_ext.media with video } in
-         Media.{ media_ext with media })
-       else media_ext in
-     handle_media media_ext t
+         let video = { media.video with send } in
+         Media.{ media with video })
+       else media in
+     handle_media ~keep_audio ~keep_video media t
   | `Bool true ->
      let send = `Resolution `SD in
-     let video = { media_ext.media.video with send } in
-     let media = { media_ext.media with video } in
-     let media_ext = Media.{ media_ext with media } in
-     handle_media media_ext t
+     let video = { media.video with send } in
+     let media = { media with video } in
+     handle_media ~keep_audio ~keep_video media t
