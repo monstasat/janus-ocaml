@@ -45,21 +45,12 @@ type 'a track =
 
 type data =
   [ `Bool of bool
-  | `Options of data_options
+  | `Init of _RTCDataChannelInit Js.t
   ]
-and data_options =
-  { ordered : bool option
-  ; max_packet_life_time : int option
-  ; max_retransmits : int option
-  ; protocol : string option
-  ; negotiated : bool option
-  ; id : int option
-  }
 
 type t =
   { audio : audio track
   ; video : video track
-  ; data : data
   }
 
 type source =
@@ -89,33 +80,23 @@ let make_video ?(fail_if_not_available = false)
   ; recv
   }
 
-let make ?audio ?video ?data () : t =
+let make ?audio ?video () : t =
   let video = match video with
     | Some x -> x
     | None -> make_video () in
   let audio = match audio with
     | Some x -> x
     | None -> make_audio () in
-  let data = match data with
-    | Some x -> x
-    | None -> `Bool false in
   { video
   ; audio
-  ; data
   }
 
-let is_data_enabled ?(media : t option) () : bool =
+let is_data_enabled (data : data) : bool =
   match get_browser () with
   | "edge" ->
      Log.ign_warning "Edge doen't support data channels yet";
      false
-  | _ ->
-     match media with
-     | None -> false
-     | Some (media : t) ->
-        match media.data with
-        | `Bool x -> x
-        | `Options _ -> true
+  | _ -> match data with `Bool x -> x | `Init _ -> true
 
 let is_track_send_enabled (track : 'a track) : bool =
   match track.send with

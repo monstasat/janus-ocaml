@@ -270,60 +270,101 @@ class type _RTCPeerConnection =
 
     (* Event handlers *)
 
+    (** The RTCPeerConnection.onaddstream event handler is a property containing
+        the code to execute when the addstream event, of type MediaStreamEvent,
+        is received by this RTCPeerConnection. Such an event is sent when
+        a MediaStream is added to this connection by the remote peer.
+        The event is sent immediately after the call setRemoteDescription() and
+        doesn't wait for the result of the SDP negotiation. *)
     method onaddstream
-           : ('b Js.t, Dom_html.event Js.t) Dom_html.event_listener
+           : ('b Js.t, mediaStreamEvent Js.t) Dom.event_listener
                Js.writeonly_prop
 
+    (** The RTCPeerConnection.onconnectionstatechange property specifies
+        an EventHandler which is called to handle the connectionstatechange
+        event when it occurs on an instance of RTCPeerConnection. This happens
+        whenever the aggregate state of the connection changes. *)
     method onconnectionstatechange
-           : ('b Js.t, Dom_html.event Js.t) Dom_html.event_listener
+           : ('b Js.t, _RTCPeerConnection Js.t Dom.event Js.t) Dom.event_listener
                Js.writeonly_prop
 
+    (** The RTCPeerConnection.ondatachannel property is an EventHandler which
+        specifies a function which is called when the datachannel event occurs
+        on an RTCPeerConnection. This event, of type RTCDataChannelEvent, is
+        sent when an RTCDataChannel is added to the connection by the remote
+        peer calling createDataChannel(). *)
     method ondatachannel
-           : ('b Js.t, Dom_html.event Js.t) Dom_html.event_listener
+           : ('b Js.t, _RTCDataChannelEvent Js.t) Dom.event_listener
                Js.writeonly_prop
 
+    (** The RTCPeerConnection.onicecandidate property is an EventHandler
+        which specifies a function to be called when the icecandidate event
+        occurs on an RTCPeerConnection instance. This happens whenever the
+        local ICE agent needs to deliver a message to the other peer through
+        the signaling server. *)
     method onicecandidate
-           : ('b Js.t, _RTCPeerConnectionIceEvent Js.t) Dom_html.event_listener
+           : ('b Js.t, _RTCPeerConnectionIceEvent Js.t) Dom.event_listener
                Js.writeonly_prop
 
+    (** The RTCPeerConnection.oniceconnectionstatechange property is an event
+        handler which specifies a function to be called when the
+        iceconnectionstatechange event is fired on an RTCPeerConnection
+        instance. This happens when the state of the connection's ICE agent, as
+        represented by the iceConnectionState property, changes. *)
     method oniceconnectionstatechange
-           : ('b Js.t, Dom_html.event Js.t) Dom_html.event_listener
+           : ('b Js.t, _RTCPeerConnection Js.t Dom.event Js.t) Dom.event_listener
                Js.writeonly_prop
 
+    (** The RTCPeerConnection.onicegatheringstatechange property is an
+        EventHandler which specifies a function to be called when the
+        icegatheringstatechange event is sent to an RTCPeerConnection
+        instance. This happens when the ICE gathering state—that is, whether
+        or not the ICE agent is actively gathering candidates—changes. *)
     method onicegatheringstatechange
-           : ('b Js.t, Dom_html.event Js.t) Dom_html.event_listener
+           : ('b Js.t, _RTCPeerConnection Js.t Dom.event Js.t) Dom.event_listener
                Js.writeonly_prop
 
+    (** The RTCPeerConnection.onidentityresult event handler is a property
+        containing the code to execute when the identityresult event, of type
+        RTCIdentityEvent, is received by this RTCPeerConnection.
+        Such an event is sent when an identity assertion is generated, via
+        getIdentityAssertion() or during the creation of an offer
+        or an answer. *)
     method onidentityresult
-           : ('b Js.t, Dom_html.event Js.t) Dom_html.event_listener
+           : ('b Js.t, _RTCIdentityEvent Js.t) Dom.event_listener
                Js.writeonly_prop
 
-    method onidpassertionerror
-           : ('b Js.t, Dom_html.event Js.t) Dom_html.event_listener
-               Js.writeonly_prop
-
-    method onidpvalidationerror
-           : ('b Js.t, Dom_html.event Js.t) Dom_html.event_listener
-               Js.writeonly_prop
-
+    (** The RTCPeerConnection.onnegotiationneeded property is an EventHandler
+        which specifies a function which is called to handle
+        the negotiationneeded event when it occurs on an RTCPeerConnection
+        instance. This event is fired when a change has occurred which requires
+        session negotiation. This negotiation should be carried out as the
+        offerer, because some session changes cannot be negotiated as
+        the answerer. *)
     method onnegotiationneeded
-           : ('b Js.t, Dom_html.event Js.t) Dom_html.event_listener
+           : ('b Js.t, _RTCPeerConnection Js.t Dom.event Js.t) Dom.event_listener
                Js.writeonly_prop
 
-    method onpeeridentity
-           : ('b Js.t, Dom_html.event Js.t) Dom_html.event_listener
-               Js.writeonly_prop
-
+    (** The RTCPeerConnection.onremovestream event handler is a property
+        containing the code to execute when the removestream event, of type
+        MediaStreamEvent, is received by this RTCPeerConnection. Such an event
+        is sent when a MediaStream is removed from this connection. *)
     method onremovestream
-           : ('b Js.t, Dom_html.event Js.t) Dom_html.event_listener
+           : ('b Js.t, mediaStreamEvent Js.t) Dom.event_listener
                Js.writeonly_prop
 
+    (** The onsignalingstatechange property of the RTCPeerConnection interface
+        is an EventHandler which specifies a function to be called when the
+        signalingstatechange event occurs on an RTCPeerConnection interface. *)
     method onsignalingstatechange
-           : ('b Js.t, Dom_html.event Js.t) Dom_html.event_listener
+           : ('b Js.t, _RTCPeerConnection Js.t Dom.event Js.t) Dom.event_listener
                Js.writeonly_prop
 
+    (** The RTCPeerConnection property ontrack is an EventHandler which
+        specifies a function to be called when the track event occurs,
+        indicating that a track has been added to the RTCPeerConnection. *)
     method ontrack
-           : ('b Js.t, _RTCTrackEvent Js.t) Dom_html.event_listener
+           : ('b Js.t, _RTCTrackEvent Js.t) Dom.event_listener
                Js.writeonly_prop
 
     (* Methods *)
@@ -334,11 +375,23 @@ class type _RTCPeerConnection =
         RTCPeerConnection.addIceCandidate(). *)
     method addIceCandidate : _RTCIceCandidateInit Js.t -> (unit, exn) promise Js.meth
 
-    method addStream : 'a Js.t Js.meth
-
-    (* FIXME return RTCRtpSender *)
-    (* FIXME can accept multiple streams *)
-    method addTrack : mediaStreamTrack Js.t -> mediaStream Js.t -> unit Js.meth
+    (** The RTCPeerConnection method addTrack() adds a new media track to
+        the set of tracks which will be transmitted to the other peer. *)
+    method addTrack :
+             mediaStreamTrack Js.t ->
+             mediaStream Js.t ->
+             _RTCRtpSender Js.t Js.meth
+    method addTrack_2 :
+             mediaStreamTrack Js.t ->
+             mediaStream Js.t ->
+             mediaStream Js.t ->
+             _RTCRtpSender Js.t Js.meth
+    method addTrack_3 :
+             mediaStreamTrack Js.t ->
+             mediaStream Js.t ->
+             mediaStream Js.t ->
+             mediaStream Js.t ->
+             _RTCRtpSender Js.t Js.meth
 
     (** The RTCPeerConnection.close() method closes the current
         peer connection. *)
@@ -492,6 +545,33 @@ class type _RTCPeerConnection =
                                   (unit, exn) promise Js.meth
 
   end
+
+  and mediaStreamEvent =
+    object
+      inherit [_RTCPeerConnection Js.t] Dom.event
+
+      (** Contains the MediaStream containing the stream associated
+          with the event. *)
+      method stream : mediaStream Js.t Js.readonly_prop
+    end
+
+  and _RTCIdentityEvent =
+    object
+      inherit [_RTCPeerConnection Js.t] Dom.event
+
+      (** Returns the DOMString containing a blob being the assertion
+          generated. *)
+      method assertion : Js.js_string Js.t Js.readonly_prop
+    end
+
+  and _RTCDataChannelEvent =
+    object
+      inherit [_RTCPeerConnection Js.t] Dom.event
+
+      (** The read-only property RTCDataChannelEvent.channel returns
+          the RTCDataChannel associated with the event. *)
+      method channel : _RTCDataChannel Js.t Js.readonly_prop
+    end
 
   and _RTCOfferAnswerOptions =
     object
@@ -879,7 +959,7 @@ class type _RTCPeerConnection =
           ontonechange event handler to indicate that a tone has either started
           or stopped playing. *)
       method ontonechange
-             : ('b Js.t, _RTCTrackEvent Js.t) Dom_html.event_listener
+             : ('b Js.t, _RTCTrackEvent Js.t) Dom.event_listener
                  Js.writeonly_prop
     end
 
@@ -1133,6 +1213,52 @@ class type _RTCPeerConnection =
           channel's underlying data connection. *)
       method readyState : Js.js_string Js.t Js.readonly_prop
 
+      (* Event handlers *)
+
+      (** The RTCDataChannel.onbufferedamountlow property is an EventHandler
+          which specifies a function the browser calls when the
+          bufferedamountlow event is sent to the RTCDataChannel. This event,
+          which is represented by a simple Event object, is sent when the
+          amount of data buffered to be sent falls to or below the threshold
+          specified by the channel's bufferedAmountLowThreshold. *)
+      method onbufferedamountlow
+             : ('b Js.t, _RTCDataChannel Js.t Dom.event Js.t) Dom.event_listener
+                 Js.writeonly_prop
+
+      (** The RTCDataChannel.onclose property is an EventHandler which
+          specifies a function to be called by the browser when the close
+          event is received by the RTCDataChannel. This is a simple Event
+          which indicates that the data channel has closed down. *)
+      method onclose
+             : ('b Js.t, _RTCDataChannel Js.t Dom.event Js.t) Dom.event_listener
+                 Js.writeonly_prop
+
+      (** The RTCDataChannel.onerror property is an EventHandler which
+          specifies a function to be called when the error event is received.
+          When an error occurs on the data channel, the function receives as
+          input an ErrorEvent object describing the error which occurred. *)
+      method onerror
+             : ('b Js.t, _RTCDataChannel Js.t _RTCErrorEvent Js.t) Dom.event_listener
+                 Js.writeonly_prop
+
+      (** The RTCDataChannel.onmessage property stores an EventHandler which
+          specifies a function to be called when the message event is fired
+          on the channel. This event is represented by the MessageEvent
+          interface. This event is sent to the channel when a message is
+          received from the other peer. *)
+      method onmessage
+             : ('b Js.t, _RTCDataChannel Js.t messageEvent Js.t) Dom.event_listener
+                 Js.writeonly_prop
+
+      (** The RTCDataChannel.onopen property is an EventHandler which specifies
+          a function to be called when the open event is fired; this is a simple
+          Event which is sent when the data channel's underlying data
+          transport — the link over which the RTCDataChannel's messages flow —
+          is established or re-established. *)
+      method onopen
+             : ('b Js.t, _RTCDataChannel Js.t Dom.event Js.t) Dom.event_listener
+                 Js.writeonly_prop
+
       (* Methods *)
 
       (** The RTCDataChannel.close() method closes the RTCDataChannel.
@@ -1144,6 +1270,45 @@ class type _RTCPeerConnection =
           the data channel to the remote peer. *)
       method send_blob : #File.blob Js.t -> unit Js.meth
       method send_string : Js.js_string Js.t -> unit Js.meth
+
+    end
+
+  and ['a] messageEvent =
+    object
+
+      (* TODO add 'source', 'ports' properties *)
+
+      inherit ['a] Dom.event
+
+      method data : 'b Js.t Js.readonly_prop
+
+      method origin : Js.js_string Js.t Js.readonly_prop
+
+      method lastEventId : Js.js_string Js.t Js.readonly_prop
+
+    end
+
+  and ['a] _RTCErrorEvent =
+    object
+      inherit ['a] Dom.event
+
+      method error : _RTCError Js.t Js.readonly_prop
+    end
+
+  and _RTCError =
+    object
+
+      method errorDetail : Js.js_string Js.t Js.readonly_prop
+
+      method sdpLineNumber : int Js.opt Js.readonly_prop
+
+      method httpRequestStatusCode : int Js.opt Js.readonly_prop
+
+      method sctpCauseCode : int Js.opt Js.readonly_prop
+
+      method receivedAlert : int Js.opt Js.readonly_prop
+
+      method sentAlert : int Js.opt Js.readonly_prop
 
     end
 
@@ -1167,7 +1332,6 @@ class type _RTCPeerConnection =
 
   and mediaStream =
     object
-      inherit Dom_html.eventTarget
 
       (* Properties *)
 
@@ -1184,13 +1348,13 @@ class type _RTCPeerConnection =
       (** An EventHandler containing the action to perform when an addtrack
         event is fired when a new MediaStreamTrack object is added. *)
       method onaddtrack
-             : ('b Js.t, mediaStreamTrackEvent Js.t) Dom_html.event_listener
+             : ('b Js.t, mediaStreamTrackEvent Js.t) Dom.event_listener
                  Js.writeonly_prop
 
       (** An EventHandler containing the action to perform when a removetrack
         event is fired when a  MediaStreamTrack object is removed from it. *)
       method onremovetrack
-             : ('b Js.t, mediaStreamTrackEvent Js.t) Dom_html.event_listener
+             : ('b Js.t, mediaStreamTrackEvent Js.t) Dom.event_listener
                  Js.writeonly_prop
 
       (* Methods *)
@@ -1317,7 +1481,7 @@ class type _RTCPeerConnection =
       (* Event handlers *)
 
       method onended
-             : ('b Js.t, mediaStreamTrack Dom.event Js.t) Dom_html.event_listener
+             : ('b Js.t, mediaStreamTrack Dom.event Js.t) Dom.event_listener
                  Js.writeonly_prop
 
     end
@@ -1776,7 +1940,7 @@ class type mediaDevices =
         This event is delivered to the MediaDevices object when a media input
         or output device is attached to or removed from the user's computer. *)
     method ondevicechange :
-             ('b Js.t, mediaDevices Js.t Dom.event Js.t) Dom_html.event_listener
+             ('b Js.t, mediaDevices Js.t Dom.event Js.t) Dom.event_listener
                Js.writeonly_prop
 
     (* Methods *)

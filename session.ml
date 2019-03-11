@@ -290,6 +290,7 @@ let attach_plugin ?(opaque_id : string option)
       ?on_slow_link
       ?on_data
       ?on_data_open
+      ?on_data_close
       ?on_data_error
       ?on_cleanup
       ?(on_detached : (unit -> unit) option)
@@ -355,6 +356,7 @@ let attach_plugin ?(opaque_id : string option)
             ; on_slow_link
             ; on_data
             ; on_data_open
+            ; on_data_close
             ; on_data_error
             ; on_cleanup
             ; on_detached

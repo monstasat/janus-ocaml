@@ -127,8 +127,9 @@ let is_simulcast_needed ?(simulcast = false) (media : Media.t) : bool =
   simulcast && Media.is_track_send_enabled media.video
 
 let create_offer_ ?(ice_restart = false) ?simulcast
-      (media : Media.t) (t : t)
-    : (_RTCSessionDescription Js.t option, string) Lwt_result.t =
+      (sdp_thread : _RTCSessionDescriptionInit Js.t Lwt.t)
+      (media : Media.t)
+      (t : t) : (_RTCSessionDescriptionInit Js.t, string) Lwt_result.t =
   t.webrtc.pc
   |> Option.to_result_lazy (fun () ->
          "create_offer: RTCPeerConnection is not established")
@@ -167,21 +168,23 @@ let create_offer_ ?(ice_restart = false) ?simulcast
           if not t.webrtc.ice_done && not t.webrtc.trickle
           then (
             Log.ign_info "Waiting for all candidates...";
-            (* XXX original code do not call success callback here *)
-            Lwt.return_ok None)
+            Lwt.map (fun x -> Ok x) sdp_thread)
           else (
             Log.ign_info "Offer ready";
             (* JSON.stringify doesn't work on some WebRTC objects anymore
 				       See https://code.google.com/p/chromium/issues/detail?id=467366 *)
-            let jsep = Js.Unsafe.(
+            let (jsep : _RTCSessionDescriptionInit Js.t) = Js.Unsafe.(
                 obj [| "type", inject offer##._type
                      ; "sdp", inject offer##.sdp |]) in
-            Lwt.return_ok (Some jsep)))
+            Lwt.cancel sdp_thread;
+            Lwt.return_ok jsep))
         (fun e -> Lwt.return_error @@ exn_to_string e))
     (fun e -> Lwt.return_error @@ exn_to_string e)
 
-let create_answer_ ?simulcast (media : Media.t) (t : t)
-    : (_RTCSessionDescription Js.t option, string) Lwt_result.t =
+let create_answer_ ?simulcast
+      (sdp_thread : _RTCSessionDescriptionInit Js.t Lwt.t)
+      (media : Media.t)
+      (t : t) : (_RTCSessionDescriptionInit Js.t, string) Lwt_result.t =
   t.webrtc.pc
   |> Option.to_result_lazy (fun () ->
          "create_offer: RTCPeerConnection is not established")
@@ -229,15 +232,15 @@ let create_answer_ ?simulcast (media : Media.t) (t : t)
           if not t.webrtc.ice_done && not t.webrtc.trickle
           then (
             Log.ign_info "Waiting for all candidates...";
-            (* XXX original code do not call success callback here *)
-            Lwt.return_ok None)
+            Lwt.map (fun x -> Ok x) sdp_thread)
           else (
             (* JSON.stringify doesn't work on some WebRTC objects anymore
 				       See https://code.google.com/p/chromium/issues/detail?id=467366 *)
-            let jsep = Js.Unsafe.(
+            let (jsep : _RTCSessionDescriptionInit Js.t) = Js.Unsafe.(
                 obj [| "type", inject answer##._type
                      ; "sdp", inject answer##.sdp |]) in
-            Lwt.return_ok (Some jsep)))
+            Lwt.cancel sdp_thread;
+            Lwt.return_ok jsep))
         (fun e -> Lwt.return_error @@ exn_to_string e))
     (fun e -> Lwt.return_error @@ exn_to_string e)
 
@@ -284,13 +287,13 @@ let update_stream
             then Some t else aux tl
          | _ -> aux tl in
     match aux @@ Array.to_list @@ Js.to_array transceivers with
-    | None -> pc##addTrack track stream
+    | None -> ignore @@ pc##addTrack track stream
     | Some (t : _RTCRtpTransceiver Js.t) ->
        ignore @@ t##.sender##replaceTrack (Js.some track))
   else (
     let prefix = if replace then "Replacing" else "Adding" in
     Log.ign_info_f ~inspect:track "%s %s track:" prefix kind;
-    pc##addTrack track stream)
+    ignore @@ pc##addTrack track stream)
 
 let handle_cached_candidates
       (candidates : _RTCIceCandidateInit Js.t Js.js_array Js.t)
@@ -314,18 +317,20 @@ let add_tracks (stream : mediaStream Js.t) (pc : _RTCPeerConnection Js.t) =
   let tracks = stream##getTracks in
   let cb = fun (track : mediaStreamTrack Js.t) _ _ ->
     Log.ign_info ~inspect:track "Adding local track:";
-    pc##addTrack track stream in
+    ignore @@ pc##addTrack track stream in
   tracks##forEach (Js.wrap_callback cb)
 
 let streams_done ?(jsep : _RTCSessionDescriptionInit Js.t option)
+      ?(data : Media.data option)
       ?(stream : mediaStream Js.t option)
       (media : Media.t)
       (t : t) =
   let update = Option.is_some t.webrtc.pc in
+  let sdp_thread, w = Lwt.task () in
   Log.ign_debug ~inspect:(Js.Opt.option stream) "streams done:";
   Option.iter (fun (s : mediaStream Js.t) ->
       Log.ign_debug ~inspect:s##getAudioTracks " -- Audio tracks:";
-      Log.ign_debug ~inspect:s##getVideoTracks " -- Video tracks")
+      Log.ign_debug ~inspect:s##getVideoTracks " -- Video tracks:")
     stream;
   (* If we still need to create a PeerConnection, let's do that *)
   let (pc : _RTCPeerConnection Js.t) = match t.webrtc.pc with
@@ -333,7 +338,7 @@ let streams_done ?(jsep : _RTCSessionDescriptionInit Js.t option)
     | None ->
        let pc = Peer_connection.create t in
        t.webrtc <- { t.webrtc with pc = Some pc };
-       Peer_connection.init t pc;
+       Peer_connection.init w pc t;
        pc in
   (* We're now capturing the new stream:
      check if we're updating or it's a new thing *)
@@ -374,11 +379,17 @@ let streams_done ?(jsep : _RTCSessionDescriptionInit Js.t option)
      end;
   end;
   (* Any data channel to create? *)
-  if Media.is_data_enabled ~media ()
-  then (
-    let dc = Data_channel.create ~media pc in
-    t.webrtc <- { t.webrtc with data_channel = Some dc};
-    Data_channel.init t dc);
+  begin match t.webrtc.data_channel, data with
+  | Some _, _ | None, None | None, Some `Bool false -> ()
+  | None, Some `Bool true ->
+     let dc = Data_channel.(create (make_default_init ()) pc) in
+     t.webrtc <- { t.webrtc with data_channel = Some dc };
+     Data_channel.init t dc
+  | None, Some `Init init ->
+     let dc = Data_channel.create init pc in
+     t.webrtc <- { t.webrtc with data_channel = Some dc };
+     Data_channel.init t dc
+  end;
   (* If there is a new local stream, let's notify the application *)
   begin match t.webrtc.local_stream with
   | None -> ()
@@ -386,8 +397,8 @@ let streams_done ?(jsep : _RTCSessionDescriptionInit Js.t option)
      Option.iter (fun f -> f stream) t.on_local_stream;
   end;
   (* Create offer/answer now *)
-  begin match jsep with
-  | None -> create_offer_ media t
+  match jsep with
+  | None -> create_offer_ sdp_thread media t
   | Some (jsep : _RTCSessionDescriptionInit Js.t) ->
      Lwt.try_bind
        (fun () -> Promise.to_lwt @@ pc##setRemoteDescription jsep)
@@ -396,9 +407,8 @@ let streams_done ?(jsep : _RTCSessionDescriptionInit Js.t option)
          t.webrtc <- { t.webrtc with remote_sdp = Some jsep };
          (* Any trickle candidate we cached? *)
          handle_cached_candidates t.webrtc.candidates pc;
-         create_answer_ media t)
-       (fun e -> Lwt.return_error @@ exn_to_string e)
-  end
+         create_answer_ sdp_thread media t)
+       (Lwt.return_error % exn_to_string)
 
 let remove_track (typ : [`Audio | `Video]) (stream : mediaStream Js.t) =
   let kind, tracks = match typ with
@@ -485,6 +495,7 @@ let update_track ~(typ:[`Audio | `Video])
         end
 
 let prepare_webrtc ?(simulcast = false) ?(trickle = true)
+      ?(data : Media.data option)
       ?(jsep : _RTCSessionDescriptionInit Js.t option)
       (source : Media.source)
       (t : t) =
@@ -516,12 +527,11 @@ let prepare_webrtc ?(simulcast = false) ?(trickle = true)
      | _ -> ()
      end;
      t.webrtc <- { t.webrtc with stream_external = true };
-     (* FIXME we really need it? *)
+     (* FIXME do we really need it? *)
      let (media : Media.t) =
        Media.{ video = make_video ~send:(`Bool true) ()
-             ; audio = make_audio ~send:(`Bool true) ()
-             ; data = `Bool false } in
-     streams_done ?jsep ~stream media t
+             ; audio = make_audio ~send:(`Bool true) () } in
+     streams_done ?jsep ?data ~stream media t
   | `Create ({ audio; video; _ } as media : Media.t) ->
      Result.Infix.(
       let local_stream = t.webrtc.local_stream in
@@ -531,13 +541,13 @@ let prepare_webrtc ?(simulcast = false) ?(trickle = true)
       >>= fun (keep_audio, audio) ->
       update_track ~typ:`Video local_stream media.video
       >|= fun (keep_video, video) ->
-      let media = { media with audio; video } in
+      let media = Media.{ audio; video } in
       keep_video, keep_audio, media)
      |> Lwt_result.lift
      >>= fun (keep_audio, keep_video, media) ->
      (* If we're keeping all tracks, let's skip the getUserMedia part *)
      if keep_audio && keep_video
-     then streams_done ?jsep ?stream:t.webrtc.local_stream media t
+     then streams_done ?jsep ?data ?stream:t.webrtc.local_stream media t
      else (
        (* Check if we need to remove/replace one of the tracks *)
        remove_or_replace_tracks media t.webrtc.local_stream t.webrtc.pc;
@@ -546,10 +556,10 @@ let prepare_webrtc ?(simulcast = false) ?(trickle = true)
          User_media.get_user_media ?jsep
            ~keep_audio ~keep_video
            ~simulcast media t
-         >>= fun stream -> streams_done ?jsep ~stream media t
+         >>= fun stream -> streams_done ?jsep ?data ~stream media t
        else
          (* No need to do a getUserMedia, create offer/answer right away *)
-         streams_done ?jsep media t)
+         streams_done ?jsep ?data media t)
 
 let prepare_webrtc_peer (jsep : _RTCSessionDescriptionInit Js.t)
       (t : t) : (unit, string) Lwt_result.t =
@@ -609,22 +619,24 @@ let typ (t : t) : typ =
  *   ignore t *)
 
 let create_offer ?simulcast ?trickle
+      ?(data : Media.data option)
       (source : Media.source)
       (t : t) =
-  prepare_webrtc ?simulcast ?trickle source t
+  prepare_webrtc ?simulcast ?trickle ?data source t
 
 let create_answer ?simulcast ?trickle
+      ?(data : Media.data option)
       ~(jsep : _RTCSessionDescriptionInit Js.t)
       (source : Media.source)
       (t : t) =
-  prepare_webrtc ?simulcast ?trickle ~jsep source t
+  prepare_webrtc ?simulcast ?trickle ?data ~jsep source t
 
 let handle_remote_jsep (jsep : _RTCSessionDescriptionInit Js.t)
       (t : t) : (unit, string) Lwt_result.t =
   prepare_webrtc_peer jsep t
 
 let send_message ?(message : 'a Js.t option)
-      ?(jsep : _RTCSessionDescription Js.t option)
+      ?(jsep : _RTCSessionDescriptionInit Js.t option)
       (t : t)
     : ('a Js.t option, string) Lwt_result.t =
   is_connected_lwt t.is_connected

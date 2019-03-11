@@ -44,21 +44,12 @@ module Media : sig
 
   type data =
     [ `Bool of bool
-    | `Options of data_options
+    | `Init of _RTCDataChannelInit Js.t
     ]
-  and data_options =
-    { ordered : bool option
-    ; max_packet_life_time : int option
-    ; max_retransmits : int option
-    ; protocol : string option
-    ; negotiated : bool option
-    ; id : int option
-    }
 
   type t =
     { audio : audio track
     ; video : video track
-    ; data : data
     }
 
   type source =
@@ -81,7 +72,6 @@ module Media : sig
 
   val make : ?audio:audio track ->
              ?video:video track ->
-             ?data:data ->
              unit ->
              t
 
@@ -144,24 +134,26 @@ module Plugin : sig
 
   val send_message :
     ?message:'a Js.t ->
-    ?jsep:_RTCSessionDescription Js.t ->
+    ?jsep:_RTCSessionDescriptionInit Js.t ->
     t ->
     ('a Js.t option, string) Lwt_result.t
 
   val create_offer :
     ?simulcast:bool ->
     ?trickle:bool ->
+    ?data:Media.data ->
     Media.source ->
     t ->
-    (_RTCSessionDescription Js.t option, string) Lwt_result.t
+    (_RTCSessionDescriptionInit Js.t, string) Lwt_result.t
 
   val create_answer :
     ?simulcast:bool ->
     ?trickle:bool ->
+    ?data:Media.data ->
     jsep:_RTCSessionDescriptionInit Js.t ->
     Media.source ->
     t ->
-    (_RTCSessionDescription Js.t option, string) Lwt_result.t
+    (_RTCSessionDescriptionInit Js.t, string) Lwt_result.t
 
   val handle_remote_jsep :
     _RTCSessionDescriptionInit Js.t ->
@@ -219,7 +211,8 @@ module Session : sig
     ?on_slow_link:(Plugin.slow_link -> unit) ->
     ?on_data:(string -> unit) ->
     ?on_data_open:(unit -> unit) ->
-    ?on_data_error:(< > Js.t -> unit) ->
+    ?on_data_close:(unit -> unit) ->
+    ?on_data_error:(_RTCError Js.t -> unit) ->
     ?on_cleanup:(unit -> unit) ->
     ?on_detached:(unit -> unit) ->
     typ:Plugin.typ ->

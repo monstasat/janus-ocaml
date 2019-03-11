@@ -5,8 +5,9 @@ open Utils
 open Adapter
 open Lwt_result.Infix
 
-let send_sdp (t : t) :
-      (_RTCSessionDescriptionInit Js.t, string) Lwt_result.t =
+let send_sdp (w : _RTCSessionDescriptionInit Js.t Lwt.u)
+      (t : t) :
+      (unit, string) Lwt_result.t =
   Log.ign_info "Sending offer/answer SDP...";
   match t.webrtc.local_sdp, t.webrtc.pc with
   | None, _ ->
@@ -30,7 +31,8 @@ let send_sdp (t : t) :
         if not t.webrtc.trickle
         then (Js.Unsafe.coerce my_sdp)##.trickle := Js._false;
         t.webrtc <- { t.webrtc with local_sdp = Some my_sdp };
-        Lwt_result.return my_sdp
+        Lwt.wakeup w my_sdp;
+        Lwt.return_ok ()
 
 let send_trickle_candidate (t : t)
       (candidate : Api.Msg.candidate Js.t)
@@ -61,7 +63,8 @@ let send_trickle_candidate (t : t)
           Log.ign_debug ~inspect:rsp "";
           Ok ())
 
-let on_ice_conn_state_change (t : t) (_ : #Dom_html.event Js.t) : bool Js.t =
+let on_ice_conn_state_change (t : t)
+      (_ : _RTCPeerConnection Js.t Dom.event Js.t) : bool Js.t =
   begin match t.webrtc.pc with
   | None -> ()
   | Some (pc : _RTCPeerConnection Js.t) ->
@@ -72,7 +75,8 @@ let on_ice_conn_state_change (t : t) (_ : #Dom_html.event Js.t) : bool Js.t =
   end;
   Js._true
 
-let handle_end_of_candidates (t : t) : (unit, string) Lwt_result.t =
+let handle_end_of_candidates (w : _RTCSessionDescriptionInit Js.t Lwt.u)
+      (t : t) : (unit, string) Lwt_result.t =
   Log.ign_info "End of candidates";
   t.webrtc <- { t.webrtc with ice_done = true };
   if t.webrtc.trickle
@@ -83,18 +87,18 @@ let handle_end_of_candidates (t : t) : (unit, string) Lwt_result.t =
     send_trickle_candidate t candidate
   else
     (* No trickle, time to send the complete SDP (including all candidates) *)
-    (* FIXME no coercion *)
-    Lwt_result.(send_sdp t >|= fun _ -> ())
+    send_sdp w t
 
-let on_ice_candidate (t : t)
+let on_ice_candidate (w : _RTCSessionDescriptionInit Js.t Lwt.u)
+      (t : t)
       (e : _RTCPeerConnectionIceEvent Js.t) : bool Js.t =
   let eoc = Js.string "endOfCandidates" in
   Log.ign_debug ~inspect:e "";
   let (t : (unit, string) Lwt_result.t) =
     match get_browser (), Js.Opt.to_option e##.candidate with
-    | _, None -> handle_end_of_candidates t
+    | _, None -> handle_end_of_candidates w t
     | "edge", Some c when c##.candidate##indexOf eoc > 0 ->
-       handle_end_of_candidates t
+       handle_end_of_candidates w t
     | _, Some (c : _RTCIceCandidate Js.t) ->
        (* JSON.stringify doesn't work on some WebRTC objects anymore
 				  See https://code.google.com/p/chromium/issues/detail?id=467366 *)
@@ -131,12 +135,14 @@ let on_track (t : t) (e : _RTCTrackEvent Js.t) : bool Js.t =
        e##.track##.onended := Dom.handler onended);
      Js._true
 
-let init (t : t) (pc : _RTCPeerConnection Js.t) : unit =
+let init (w : _RTCSessionDescriptionInit Js.t Lwt.u)
+      (pc : _RTCPeerConnection Js.t)
+      (t : t) : unit =
   Log.ign_info_f
     "Preparing local SDP and gathering candidates (trickle=%b)"
     t.webrtc.trickle;
   pc##.oniceconnectionstatechange := Dom.handler (on_ice_conn_state_change t);
-  pc##.onicecandidate := Dom.handler (on_ice_candidate t);
+  pc##.onicecandidate := Dom.handler (on_ice_candidate w t);
   pc##.ontrack := Dom.handler (on_track t)
 
 let create (t : t) : _RTCPeerConnection Js.t =

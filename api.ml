@@ -93,7 +93,7 @@ module Msg = struct
       method plugin : Js.js_string Js.t Js.optdef_prop
       method opaque_id_ : Js.js_string Js.t Js.optdef_prop
       method handle_id_ : int Js.optdef_prop
-      method jsep : _RTCSessionDescription Js.t Js.optdef_prop
+      method jsep : _RTCSessionDescriptionInit Js.t Js.optdef_prop
       method body : 'a Js.t Js.optdef_prop
       method candidate : candidate Js.t Js.optdef_prop
       method candidates : candidate Js.t Js.js_array Js.t Js.optdef_prop
@@ -157,7 +157,7 @@ module Msg = struct
         ?(session_id : int option)
         ?(handle_id : int option)
         ?(opaque_id : string option)
-        ?(jsep : _RTCSessionDescription Js.t option)
+        ?(jsep : _RTCSessionDescriptionInit Js.t option)
         ?(candidate : candidate Js.t option)
         ?(body : 'a Js.t option)
         ~(janus : string)
