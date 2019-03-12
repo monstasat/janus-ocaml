@@ -209,7 +209,7 @@ module Session : sig
     ?on_webrtc_state:(Plugin.webrtc_state -> unit) ->
     ?on_media_state:(Plugin.media_state -> unit) ->
     ?on_slow_link:(Plugin.slow_link -> unit) ->
-    ?on_data:(string -> unit) ->
+    ?on_data:('a Js.t -> unit) ->
     ?on_data_open:(unit -> unit) ->
     ?on_data_close:(unit -> unit) ->
     ?on_data_error:(_RTCError Js.t -> unit) ->

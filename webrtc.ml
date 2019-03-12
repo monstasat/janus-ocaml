@@ -1,5 +1,4 @@
 open Js_of_ocaml
-open Promise
 
 class type longRange =
   object
@@ -160,22 +159,35 @@ module Constrain = struct
 
 end
 
+module KV : sig
+  type 'a t
+  val key : 'a t -> Js.js_string Js.t
+  val value : 'a t -> 'a
+end = struct
+
+  type 'a t = 'a Js.js_array Js.t
+
+  let key (t : 'a t) : Js.js_string Js.t =
+    Obj.magic
+    @@ Js.Optdef.get (Js.array_get t 0) (fun () -> assert false)
+
+  let value (t : 'a t) : 'a =
+    Js.Optdef.get (Js.array_get t 1) (fun () -> assert false)
+
+end
+
 class type _RTCPeerConnection =
   object
 
-    (** The read-only RTCPeerConnection property canTrickleIceCandidates
-        returns a Boolean which indicates whether or not the remote peer
+    (** Returns a Boolean which indicates whether or not the remote peer
         can accept trickled ICE candidates. *)
     method canTrickleIceCandidates : bool Js.t Js.readonly_prop
 
-    (** The read-only connectionState property of the RTCPeerConnection
-        interface indicates the current state of the peer connection by
-        returning one of the string values specified by the enum
-        RTCPeerConnectionState. *)
+    (** Indicates the current state of the peer connection by returning one of
+        the string values specified by the enum RTCPeerConnectionState. *)
     method connectionState : Js.js_string Js.t Js.readonly_prop
 
-    (** The read-only property RTCPeerConnection.currentLocalDescription
-        returns an RTCSessionDescription object describing the local end
+    (** Returns an RTCSessionDescription object describing the local end
         of the connection as it was most recently successfully negotiated
         since the last time the  RTCPeerConnection finished negotiating and
         connecting to a remote peer. Also included is a list of any ICE
@@ -184,8 +196,7 @@ class type _RTCPeerConnection =
         instantiated. *)
     method currentLocalDescription : _RTCSessionDescription Js.t Js.opt Js.readonly_prop
 
-    (** The read-only property RTCPeerConnection.currentRemoteDescription
-        returns an RTCSessionDescription object describing the remote end
+    (** Returns an RTCSessionDescription object describing the remote end
         of the connection as it was most recently successfully negotiated
         since the last time the RTCPeerConnection finished negotiating and
         connecting to a remote peer. Also included is a list of any ICE
@@ -194,39 +205,34 @@ class type _RTCPeerConnection =
         instantiated. *)
     method currentRemoteDescription : _RTCSessionDescription Js.t Js.opt Js.readonly_prop
 
-    (** The read-only property RTCPeerConnection.defaultIceServers returns
-        an array of objects based on the RTCIceServer dictionary, which
+    (** Returns an array of objects based on the RTCIceServer dictionary, which
         indicates what, if any, ICE servers the browser will use by default
         if none are provided to the RTCPeerConnection in its RTCConfiguration.
         However, browsers are not required to provide any default ICE servers
         at all. *)
     method defaultIceServers : _RTCIceServer Js.t Js.js_array Js.t Js.readonly_prop
 
-    (** The read-only property RTCPeerConnection.iceConnectionState returns
-        an enum of type RTCIceConnectionState which state of the ICE agent
-        associated with the RTCPeerConnection. *)
+    (** Returns an enum of type RTCIceConnectionState which state of the
+        ICE agent associated with the RTCPeerConnection. *)
     method iceConnectionState : Js.js_string Js.t Js.readonly_prop
 
-    (** The read-only property RTCPeerConnection.iceGatheringState returns
-        an enum of type RTCIceGatheringState that describes connection's ICE
-        gathering state. This lets you detect, for example, when collection
+    (** Returns an enum of type RTCIceGatheringState that describes connection's
+        ICE gathering state. This lets you detect, for example, when collection
         of ICE candidates has finished. *)
     method iceGatheringState : Js.js_string Js.t Js.readonly_prop
 
-    (** The read-only property RTCPeerConnection.localDescription returns an
-        RTCSessionDescription describing the session for the local end of the
-        connection. If it has not yet been set, this is null. *)
+    (** Returns an RTCSessionDescription describing the session for the local
+        end of the connection. If it has not yet been set, this is null. *)
     method localDescription : _RTCSessionDescription Js.t Js.opt Js.readonly_prop
 
     (* TODO add type *)
-    (** The read-only property RTCPeerConnection.peerIdentity returns
-        an RTCIdentityAssertion, containing a DOMString once set and verified.
-        If no peer has yet been set and verified, this property will return
-        null. Once set, via the appropriate method, it can't be changed. *)
+    (** Returns a RTCIdentityAssertion, containing a DOMString once set and
+        verified. If no peer has yet been set and verified, this property will
+        return null. Once set, via the appropriate method,
+        it can't be changed. *)
     method peerIdentity : 'a Js.t Js.opt Js.readonly_prop
 
-    (** The read-only property RTCPeerConnection.pendingLocalDescription
-        returns an RTCSessionDescription object describing a pending
+    (** Returns an RTCSessionDescription object describing a pending
         configuration change for the local end of the connection.
         This does not describe the connection as it currently stands, but as
         it may exist in the near future.
@@ -236,8 +242,7 @@ class type _RTCPeerConnection =
         descriptions in WebRTC connectivity. *)
     method pendingLocalDescription : _RTCSessionDescription Js.t Js.opt Js.readonly_prop
 
-    (** The read-only property RTCPeerConnection.pendingRemoteDescription
-        returns an RTCSessionDescription object describing a pending
+    (** Returns an RTCSessionDescription object describing a pending
         configuration change for the remote end of the connection.
         This does not describe the connection as it currently stands, but as
         it may exist in the near future.
@@ -247,21 +252,18 @@ class type _RTCPeerConnection =
         Pending and current descriptions in WebRTC connectivity. *)
     method pendingRemoteDescription : _RTCSessionDescription Js.t Js.opt Js.readonly_prop
 
-    (** The read-only property RTCPeerConnection.remoteDescription returns
-        a RTCSessionDescription describing the session (which includes
+    (** Returns a RTCSessionDescription describing the session (which includes
         configuration and media information) for the remote end of the
         connection. If this hasn't been set yet, this is null. *)
     method remoteDescription : _RTCSessionDescription Js.t Js.opt Js.readonly_prop
 
     (* TODO add type *)
-    (** The read-only sctp property on the RTCPeerConnection interface returns
-        an RTCSctpTransport describing the SCTP transport over which SCTP data
-        is being sent and received. If SCTP hasn't been negotiated, this value
-        is null. *)
+    (** Returns a RTCSctpTransport describing the SCTP transport over which SCTP
+        data is being sent and received. If SCTP hasn't been negotiated, this
+        value is null. *)
     method sctp : 'a Js.t Js.opt Js.readonly_prop
 
-    (** The read-only signalingState property on the RTCPeerConnection interface
-        returns one of the string values specified by the RTCSignalingState
+    (** Returns one of the string values specified by the RTCSignalingState
         enum; these values describe the state of the signaling process on the
         local end of the connection while connecting or reconnecting to another
         peer. See Signaling in Lifetime of a WebRTC session for more details
@@ -270,99 +272,85 @@ class type _RTCPeerConnection =
 
     (* Event handlers *)
 
-    (** The RTCPeerConnection.onaddstream event handler is a property containing
-        the code to execute when the addstream event, of type MediaStreamEvent,
-        is received by this RTCPeerConnection. Such an event is sent when
-        a MediaStream is added to this connection by the remote peer.
+    (** Called when the addstream event, of type MediaStreamEvent, is received
+        by this RTCPeerConnection. Such an event is sent when a MediaStream is
+        added to this connection by the remote peer.
         The event is sent immediately after the call setRemoteDescription() and
         doesn't wait for the result of the SDP negotiation. *)
     method onaddstream
            : ('b Js.t, mediaStreamEvent Js.t) Dom.event_listener
                Js.writeonly_prop
 
-    (** The RTCPeerConnection.onconnectionstatechange property specifies
-        an EventHandler which is called to handle the connectionstatechange
-        event when it occurs on an instance of RTCPeerConnection. This happens
-        whenever the aggregate state of the connection changes. *)
+    (** Called to handle the connectionstatechange event when it occurs on an
+        instance of RTCPeerConnection. This happens whenever the aggregate
+        state of the connection changes. *)
     method onconnectionstatechange
            : ('b Js.t, _RTCPeerConnection Js.t Dom.event Js.t) Dom.event_listener
                Js.writeonly_prop
 
-    (** The RTCPeerConnection.ondatachannel property is an EventHandler which
-        specifies a function which is called when the datachannel event occurs
-        on an RTCPeerConnection. This event, of type RTCDataChannelEvent, is
-        sent when an RTCDataChannel is added to the connection by the remote
-        peer calling createDataChannel(). *)
+    (** Called when the datachannel event occurs on an RTCPeerConnection.
+        This event, of type RTCDataChannelEvent, is sent when an RTCDataChannel
+        is added to the connection by the remote peer calling
+        createDataChannel(). *)
     method ondatachannel
            : ('b Js.t, _RTCDataChannelEvent Js.t) Dom.event_listener
                Js.writeonly_prop
 
-    (** The RTCPeerConnection.onicecandidate property is an EventHandler
-        which specifies a function to be called when the icecandidate event
-        occurs on an RTCPeerConnection instance. This happens whenever the
-        local ICE agent needs to deliver a message to the other peer through
-        the signaling server. *)
+    (** Called when the icecandidate event occurs on an RTCPeerConnection
+        instance. This happens whenever the local ICE agent needs to deliver
+        a message to the other peer through the signaling server. *)
     method onicecandidate
            : ('b Js.t, _RTCPeerConnectionIceEvent Js.t) Dom.event_listener
                Js.writeonly_prop
 
-    (** The RTCPeerConnection.oniceconnectionstatechange property is an event
-        handler which specifies a function to be called when the
-        iceconnectionstatechange event is fired on an RTCPeerConnection
-        instance. This happens when the state of the connection's ICE agent, as
-        represented by the iceConnectionState property, changes. *)
+    (** Called when the iceconnectionstatechange event is fired on an
+        RTCPeerConnection instance. This happens when the state of the
+        connection's ICE agent, as represented by the iceConnectionState
+        property, changes. *)
     method oniceconnectionstatechange
-           : ('b Js.t, _RTCPeerConnection Js.t Dom.event Js.t) Dom.event_listener
+           : ('b Js.t, _RTCPeerConnection Dom.event Js.t) Dom.event_listener
                Js.writeonly_prop
 
-    (** The RTCPeerConnection.onicegatheringstatechange property is an
-        EventHandler which specifies a function to be called when the
-        icegatheringstatechange event is sent to an RTCPeerConnection
-        instance. This happens when the ICE gathering state—that is, whether
-        or not the ICE agent is actively gathering candidates—changes. *)
+    (** Called when the icegatheringstatechange event is sent to an
+        RTCPeerConnection instance. This happens when the ICE gathering
+        state—that is, whether or not the ICE agent is actively gathering
+        candidates—changes. *)
     method onicegatheringstatechange
-           : ('b Js.t, _RTCPeerConnection Js.t Dom.event Js.t) Dom.event_listener
+           : ('b Js.t, _RTCPeerConnection Dom.event Js.t) Dom.event_listener
                Js.writeonly_prop
 
-    (** The RTCPeerConnection.onidentityresult event handler is a property
-        containing the code to execute when the identityresult event, of type
-        RTCIdentityEvent, is received by this RTCPeerConnection.
-        Such an event is sent when an identity assertion is generated, via
-        getIdentityAssertion() or during the creation of an offer
-        or an answer. *)
+    (** Called when the identityresult event, of type RTCIdentityEvent, is
+        received by this RTCPeerConnection. Such an event is sent when an
+        identity assertion is generated, via getIdentityAssertion() or during
+        the creation of an offer or an answer. *)
     method onidentityresult
            : ('b Js.t, _RTCIdentityEvent Js.t) Dom.event_listener
                Js.writeonly_prop
 
-    (** The RTCPeerConnection.onnegotiationneeded property is an EventHandler
-        which specifies a function which is called to handle
-        the negotiationneeded event when it occurs on an RTCPeerConnection
-        instance. This event is fired when a change has occurred which requires
-        session negotiation. This negotiation should be carried out as the
-        offerer, because some session changes cannot be negotiated as
-        the answerer. *)
+    (** Called to handle the negotiationneeded event when it occurs on an
+        RTCPeerConnection instance. This event is fired when a change has
+        occurred which requires session negotiation. This negotiation should
+        be carried out as the offerer, because some session changes cannot be
+        negotiated as the answerer. *)
     method onnegotiationneeded
-           : ('b Js.t, _RTCPeerConnection Js.t Dom.event Js.t) Dom.event_listener
+           : ('b Js.t, _RTCPeerConnection Dom.event Js.t) Dom.event_listener
                Js.writeonly_prop
 
-    (** The RTCPeerConnection.onremovestream event handler is a property
-        containing the code to execute when the removestream event, of type
-        MediaStreamEvent, is received by this RTCPeerConnection. Such an event
-        is sent when a MediaStream is removed from this connection. *)
+    (** Called when the removestream event, of type mediaStreamEvent, is
+        received by this RTCPeerConnection. Such an event is sent when
+        a MediaStream is removed from this connection. *)
     method onremovestream
            : ('b Js.t, mediaStreamEvent Js.t) Dom.event_listener
                Js.writeonly_prop
 
-    (** The onsignalingstatechange property of the RTCPeerConnection interface
-        is an EventHandler which specifies a function to be called when the
-        signalingstatechange event occurs on an RTCPeerConnection interface. *)
+    (** Called when the signalingstatechange event occurs on an
+        RTCPeerConnection interface. *)
     method onsignalingstatechange
-           : ('b Js.t, _RTCPeerConnection Js.t Dom.event Js.t) Dom.event_listener
+           : ('b Js.t, _RTCPeerConnection Dom.event Js.t) Dom.event_listener
                Js.writeonly_prop
 
-    (** The RTCPeerConnection property ontrack is an EventHandler which
-        specifies a function to be called when the track event occurs,
-        indicating that a track has been added to the RTCPeerConnection. *)
+    (** Called when the track event occurs, indicating that a track has been
+        added to the RTCPeerConnection. *)
     method ontrack
            : ('b Js.t, _RTCTrackEvent Js.t) Dom.event_listener
                Js.writeonly_prop
@@ -373,10 +361,10 @@ class type _RTCPeerConnection =
         candidate from the remote peer over its signaling channel, it delivers
         the newly-received candidate to the browser's ICE agent by calling
         RTCPeerConnection.addIceCandidate(). *)
-    method addIceCandidate : _RTCIceCandidateInit Js.t -> (unit, exn) promise Js.meth
+    method addIceCandidate : _RTCIceCandidateInit Js.t -> (unit, exn) Promise.t Js.meth
 
-    (** The RTCPeerConnection method addTrack() adds a new media track to
-        the set of tracks which will be transmitted to the other peer. *)
+    (** Adds a new media track to the set of tracks which will be transmitted to
+        the other peer. *)
     method addTrack :
              mediaStreamTrack Js.t ->
              mediaStream Js.t ->
@@ -393,21 +381,18 @@ class type _RTCPeerConnection =
              mediaStream Js.t ->
              _RTCRtpSender Js.t Js.meth
 
-    (** The RTCPeerConnection.close() method closes the current
-        peer connection. *)
+    (** Closes the current peer connection. *)
     method close : unit Js.meth
 
-    (** The createOffer() method of the RTCPeerConnection interface initiates
-        the creation of an SDP offer for the purpose of starting a new WebRTC
-        connection to a remote peer. *)
+    (** Initiates the creation of an SDP offer for the purpose of starting
+        a new WebRTC connection to a remote peer. *)
     method createOffer
            : _RTCOfferOptions Js.t ->
-             (_RTCSessionDescriptionInit Js.t, exn) promise Js.meth
+             (_RTCSessionDescriptionInit Js.t, exn) Promise.t Js.meth
     method createOffer_
-           : (_RTCSessionDescriptionInit Js.t, exn) promise Js.meth
+           : (_RTCSessionDescriptionInit Js.t, exn) Promise.t Js.meth
 
-    (** The createAnswer() method on the RTCPeerConnection interface creates
-        an SDP answer to an offer received from a remote peer during the
+    (** Creates an SDP answer to an offer received from a remote peer during the
         offer/answer negotiation of a WebRTC connection. The answer contains
         information about any media already attached to the session, codecs
         and options supported by the browser, and any ICE candidates already
@@ -416,12 +401,11 @@ class type _RTCPeerConnection =
         process. *)
     method createAnswer
            : _RTCAnswerOptions Js.t ->
-             (_RTCSessionDescriptionInit Js.t, exn) promise Js.meth
+             (_RTCSessionDescriptionInit Js.t, exn) Promise.t Js.meth
     method createAnswer_
-           : (_RTCSessionDescriptionInit Js.t, exn) promise Js.meth
+           : (_RTCSessionDescriptionInit Js.t, exn) Promise.t Js.meth
 
-    (** The createDataChannel() method on the RTCPeerConnection interface
-        creates a new channel over which any kind of data may be transmitted.
+    (** Creates a new channel over which any kind of data may be transmitted.
         This can be useful for back-channel content such as images, file
         transfer, text chat, game update packets, and so forth. *)
     method createDataChannel
@@ -434,45 +418,40 @@ class type _RTCPeerConnection =
 
     method generateCertificate : 'a Js.meth
 
-    (** The RTCPeerConnection.getConfiguration() method returns
-        an RTCConfiguration object which indicates the current configuration
-        of the RTCPeerConnection on which the method is called. *)
+    (** Returns a RTCConfiguration object which indicates the current
+        configuration of the RTCPeerConnection on which the method is
+        called. *)
     method getConfiguration : _RTCConfiguration Js.t Js.meth
 
-    (** The RTCPeerConnection.getIdentityAssertion() method initiates
-        the gathering of an identity assertion. This has an effect only if
-        the signalingState is not "closed". *)
+    (** Initiates the gathering of an identity assertion. This has an
+        effect only if the signalingState is not "closed". *)
     method getIdentityAssertion : unit Js.meth
 
-    (** The RTCPeerConnection.getLocalStreams() method returns an array of
-        MediaStream associated with the local end of the connection.
-        The array may be empty. *)
+    (** Returns an array of MediaStream associated with the local end of
+        the connection. The array may be empty. *)
     method getLocalStreams : mediaStream Js.t Js.js_array Js.t Js.meth
 
-    (** The RTCPeerConnection.getReceivers() method returns an array of
-        RTCRtpReceiver objects, each of which represents one RTP receiver.
-        Each RTP receiver manages the reception and decoding of data for
-        a MediaStreamTrack on an RTCPeerConnection *)
+    (** Returns an array of RTCRtpReceiver objects, each of which represents
+        one RTP receiver. Each RTP receiver manages the reception and decoding
+        of data for a MediaStreamTrack on an RTCPeerConnection *)
     method getReceivers : _RTCRtpReceiver Js.t Js.js_array Js.t Js.meth
 
-    (** The RTCPeerConnection.getRemoteStreams() method returns an array of
-        MediaStream associated with the remote end of the connection.
-        The array may be empty. *)
+    (** Returns an array of MediaStream associated with the remote end of the
+        connection. The array may be empty. *)
     method getRemoteStreams : mediaStream Js.t Js.js_array Js.t Js.meth
 
-    (** The RTCPeerConnection method getSenders() returns an array of
-        RTCRtpSender objects, each of which represents the RTP sender
-        responsible for transmitting one track's data. *)
+    (** Returns an array of RTCRtpSender objects, each of which represents the
+        RTP sender responsible for transmitting one track's data. *)
     method getSenders : _RTCRtpSender Js.t Js.js_array Js.t Js.meth
 
-    (* TODO add description *)
+    (** Returns an array of RTCRtpTransceiver objects representing the RTP
+        transceivers that are currently attached to the RTCPeerConnection. *)
     method getTransceivers : _RTCRtpTransceiver Js.t Js.js_array Js.t Js.meth
 
-    (** The RTCPeerConnection method addTransceiver() creates a new
-        RTCRtpTransceiver and adds it to the set of transceivers associated
-        with the RTCPeerConnection. Each transceiver represents a bidirectional
-        stream, with both an RTCRtpSender and an RTCRtpReceiver associated with
-        it. *)
+    (** Creates a new RTCRtpTransceiver and adds it to the set of transceivers
+        associated with the RTCPeerConnection. Each transceiver represents a
+        bidirectional stream, with both an RTCRtpSender and an RTCRtpReceiver
+        associated with it. *)
     method addTransceiver
            : Js.js_string Js.t ->
              _RTCRtpTransceiverInit Js.t ->
@@ -488,38 +467,38 @@ class type _RTCPeerConnection =
            : mediaStreamTrack Js.t ->
              _RTCRtpTransceiver Js.t Js.meth
 
-    (* TODO *)
-    method getStats : 'a Js.meth
+    (** Returns a promise which resolves with data providing statistics about
+        either the overall connection or about the specified MediaStreamTrack. *)
+    method getStats : mediaStreamTrack Js.t Js.opt ->
+                      (_RTCStatsReport Js.t, exn) Promise.t Js.meth
 
-    (** The RTCPeerConnection.getStreamById() method returns the MediaStream
-        with the given id that is associated with local or remote end of the
-        connection. If no stream matches, it returns null. *)
+    (** Returns the MediaStream with the given id that is associated with local
+        or remote end of the connection. If no stream matches, it returns null. *)
     method getStreamById : Js.js_string Js.t -> mediaStream Js.t Js.opt Js.meth
 
-    (** The RTCPeerConnection.removeStream() method removes a MediaStream as
-        a local source of audio or video. If the negotiation already happened,
-        a new one will be needed for the remote peer to be able to use it.
-        Because this method has been deprecated, you should instead use
-        removeTrack() if your target browser versions have implemented it. *)
+    (** Removes a MediaStream as a local source of audio or video.
+        If the negotiation already happened, a new one will be needed for the
+        remote peer to be able to use it. Because this method has been
+        deprecated, you should instead use removeTrack() if your target browser
+        versions have implemented it. *)
     method removeStream : mediaStream Js.t -> unit Js.meth
 
-    (** The RTCPeerConnection.removeTrack() method tells the local end of the
-        connection to stop sending media from the specified track, without
-        actually removing the corresponding RTCRtpSender from the list of
-        senders as reported by RTCPeerConnection.getSenders(). *)
+    (** Tells the local end of the connection to stop sending media from the
+        specified track, without actually removing the corresponding
+        RTCRtpSender from the list of senders as reported by
+        RTCPeerConnection.getSenders(). *)
     method removeTrack : _RTCRtpSender Js.t -> unit Js.meth
 
-    (** The RTCPeerConnection.setConfiguration() method sets the current
-        configuration of the RTCPeerConnection based on the values included
-        in the specified RTCConfiguration object. This lets you change the
-        ICE servers used by the connection and which transport policies
-        to use. *)
+    (** Sets the current configuration of the RTCPeerConnection based on the
+        values included in the specified RTCConfiguration object.
+        This lets you change the ICE servers used by the connection and which
+        transport policies to use. *)
     method setConfiguration : _RTCConfiguration Js.t -> unit Js.meth Js.meth
 
-    (** The RTCPeerConnection.setIdentityProvider() method sets the Identity
-        Provider (IdP) to the triplet given in parameter: its name, the protocol
-        used to communicate with it (optional) and an optional username.
-        The IdP will be used only when an assertion is needed. *)
+    (** Sets the Identity Provider (IdP) to the triplet given in parameter:
+        its name, the protocol used to communicate with it (optional) and an
+        optional username. The IdP will be used only when an assertion is
+        needed. *)
     method setIdentityProvider : Js.js_string Js.t -> unit Js.meth
     method setIdentityProvider_protocol : Js.js_string Js.t ->
                                           Js.js_string Js.t ->
@@ -529,48 +508,62 @@ class type _RTCPeerConnection =
                                           Js.js_string Js.t ->
                                           unit Js.meth
 
-    (** The RTCPeerConnection.setLocalDescription() method changes the local
-        description associated with the connection. This description specifies
-        the properties of the local end of the connection, including the media
-        format. *)
+    (** Changes the local description associated with the connection. This
+        description specifies the properties of the local end of the connection,
+        including the media format. *)
     method setLocalDescription : _RTCSessionDescriptionInit Js.t ->
-                                 (unit, exn) promise Js.meth
+                                 (unit, exn) Promise.t Js.meth
 
 
-    (** The RTCPeerConnection.setRemoteDescription() method changes the remote
-        description associated with the connection. This description specifies
-        the properties of the remote end of the connection, including the media
-        format. *)
+    (** Canges the remote description associated with the connection. This
+        description specifies the properties of the remote end of the connection,
+        including the media format. *)
     method setRemoteDescription : _RTCSessionDescriptionInit Js.t ->
-                                  (unit, exn) promise Js.meth
+                                  (unit, exn) Promise.t Js.meth
 
   end
 
-  and mediaStreamEvent =
+  and _RTCStatsReport =
     object
-      inherit [_RTCPeerConnection Js.t] Dom.event
+      (* Properties *)
 
-      (** Contains the MediaStream containing the stream associated
-          with the event. *)
-      method stream : mediaStream Js.t Js.readonly_prop
+      method size : int Js.readonly_prop
+
+      (* Methods *)
+
+      method entries : _RTCStats KV.t Js.js_array Js.t Js.meth
+
+      method forEach : (_RTCStats Js.t -> Js.js_string Js.t ->
+                        _RTCStatsReport Js.t -> unit) Js.callback ->
+                       unit Js.meth
+
+      method get : Js.js_string Js.t -> _RTCStats Js.t Js.optdef Js.meth
+
+      method has : Js.js_string Js.t -> bool Js.t Js.meth
+
+      method keys : Js.js_string Js.t Js.js_array Js.t Js.meth
+
+      method values : _RTCStats Js.t Js.js_array Js.t Js.meth
+
     end
 
-  and _RTCIdentityEvent =
+  and _RTCStats =
     object
-      inherit [_RTCPeerConnection Js.t] Dom.event
+      (** The timestamp in milliseconds associated with this object.
+          The time is relative to the UNIX epoch (Jan 1, 1970, UTC). *)
+      method timestamp : float Js.prop
 
-      (** Returns the DOMString containing a blob being the assertion
-          generated. *)
-      method assertion : Js.js_string Js.t Js.readonly_prop
-    end
+      (** The type of this object. *)
+      method _type : Js.js_string Js.t Js.prop
 
-  and _RTCDataChannelEvent =
-    object
-      inherit [_RTCPeerConnection Js.t] Dom.event
+      (** A unique id that is associated with the object that was inspected to
+          produce this RTCStats object. Two RTCStats objects, extracted from two
+          different RTCStatsReport objects, MUST have the same id if they were
+          produced by inspecting the same underlying object. User agents are free
+          to pick any format for the id as long as it meets the requirements
+          above. *)
+      method id : Js.js_string Js.t Js.prop
 
-      (** The read-only property RTCDataChannelEvent.channel returns
-          the RTCDataChannel associated with the event. *)
-      method channel : _RTCDataChannel Js.t Js.readonly_prop
     end
 
   and _RTCOfferAnswerOptions =
@@ -599,28 +592,28 @@ class type _RTCPeerConnection =
 
       inherit _RTCOfferAnswerOptions
 
-      (** To restart ICE on an active connection, set this to true.
+      (** To restart ICE on an active connection, set this to [true].
           This will cause the returned offer to have different credentials
           than those already in place. If you then apply the returned offer,
           ICE will restart. Specify false to keep the same credentials and
-          therefore not restart ICE. The default is false. *)
+          therefore not restart ICE. The default is [false]. *)
       method iceRestart : bool Js.t Js.optdef_prop
 
-      (** A legacy Boolean option which used to control whether or not to offer
+      (** A legacy option which used to control whether or not to offer
           to the remote peer the opportunity to try to send audio.
-          If this value is false, the remote peer will not be offered to send
+          If this value is [false], the remote peer will not be offered to send
           audio data, even if the local side will be sending audio data.
-          If this value is true, the remote peer will be offered to send audio
+          If this value is [true], the remote peer will be offered to send audio
           data, even if the local side will not be sending audio data.
           The default behavior is to offer to receive audio only if the local
           side is sending audio, not otherwise. *)
       method offerToReceiveAudio : bool Js.t Js.optdef_prop
 
-      (** A legacy Boolean option which used to control whether or not to offer
+      (** A legacy option which used to control whether or not to offer
           to the remote peer the opportunity to try to send video.
-          If this value is false, the remote peer will not be offered to send
+          If this value is [false], the remote peer will not be offered to send
           video data, even if the local side will be sending video data.
-          If this value is true, the remote peer will be offered to send video
+          If this value is [true], the remote peer will be offered to send video
           data, even if the local side will not be sending video data.
           The default behavior is to offer to receive video only if the local
           side is sending video, not otherwise. *)
@@ -628,15 +621,12 @@ class type _RTCPeerConnection =
 
     end
 
-  (** The RTCRtpTransceiverInit dictionary is used when calling the WebRTC
-      function RTCPeerConnection.addTransceiver() to provide configuration
-      options for the new transceiver. *)
+  (** Used when calling the WebRTC function RTCPeerConnection.addTransceiver()
+      to provide configuration options for the new transceiver. *)
   and _RTCRtpTransceiverInit =
     object
 
-      (** The new transceiver's preferred directionality.
-          This value is used to initialize the new RTCRtpTransceiver object's
-          RTCRtpTransceiver.direction property. *)
+      (** The new transceiver's preferred directionality. *)
       method direction : Js.js_string Js.t Js.optdef_prop
 
       (** A list of encodings to allow when sending RTP media from
@@ -659,14 +649,13 @@ class type _RTCPeerConnection =
   and _RTCRtpEncodingParameters =
     object
 
-      (** If true, the described encoding is currently actively being used.
+      (** If [true], the described encoding is currently actively being used.
           That is, for RTP senders, the encoding is currently being used to
           send data, while for receivers, the encoding is being used to decode
-          received data. The default value is true. *)
+          received data. The default value is [true]. *)
       method active : bool Js.t Js.prop
 
-      (** Indicates the priority of this encoding.
-          It is specified in RTCWEB-TRANSPORT, Section 4. *)
+      (** Indicates the priority of this encoding. *)
       method priority : Js.js_string Js.t Js.prop
 
       (** When describing a codec for an RTCRtpSender, codecPayloadType is a
@@ -683,34 +672,31 @@ class type _RTCPeerConnection =
           The value is taken from the enumerated string type RTCDtxStatus. *)
       method dtx : bool Js.t Js.prop
 
-      (** An unsigned long integer indicating the maximum number of bits per
-          second to allow for this encoding. Other parameters may further
-          constrain the bit rate, such as the value of maxFramerate or transport
-          or physical network limitations. *)
+      (** Indicates the maximum number of bits per second to allow for this
+          encoding. Other parameters may further constrain the bit rate, such
+          as the value of maxFramerate or transport or physical network
+          limitations. *)
       method maxBitrate : int Js.prop
 
-      (** A double-precision floating-point value specifying the maximum number
-          of frames per second to allow for this encoding. *)
+      (** Specifies the maximum number of frames per second to allow for this
+          encoding. *)
       method maxFramerate : float Js.prop
 
-      (** An unsigned long integer value indicating the preferred duration of
-          a media packet in milliseconds. This is typically only relevant for
-          audio encodings. The user agent will try to match this as well as it
-          can, but there is no guarantee. *)
+      (** Indicates the preferred duration of a media packet in milliseconds.
+          This is typically only relevant for audio encodings. The user agent
+          will try to match this as well as it can, but there is no guarantee. *)
       method ptime : int Js.prop
 
-      (** A DOMString which, if set, specifies an RTP stream ID (RID) to be sent
-          using the RID header extension. This parameter cannot be modified
-          using setParameters().
+      (** Specifies an RTP stream ID (RID) to be sent using the RID header
+          extension. This parameter cannot be modified using setParameters().
           Its value can only be set when the transceiver is first created. *)
       method rid : Js.js_string Js.t Js.readonly_prop
 
-      (** Only used for senders whose track's kind is video, this is a
-          double-precision floating-point value specifying a factor by which to
-          scale down the video during encoding. The default value, 1.0, means
-          that the sent video's size will be the same as the original.
-          A value of 2.0 scales the video frames down by a factor of 2 in each
-          dimension, resulting in a video 1/4 the size of the original.
+      (** Only used for senders whose track's kind is video. Specifies a factor
+          by which to scale down the video during encoding. The default value,
+          1.0, means that the sent video's size will be the same as the
+          original. A value of 2.0 scales the video frames down by a factor of
+          2 in each dimension, resulting in a video 1/4 the size of the original.
           The value must not be less than 1.0 (you can't use this to scale the
           video up). *)
       method scaleResolutionDownBy : float Js.prop
@@ -721,17 +707,14 @@ class type _RTCPeerConnection =
       an RTCRtpSender and an RTCRtpReceiver, along with some shared state. *)
   and _RTCRtpTransceiver =
     object
-
       (* Properties *)
 
-      (** A string from the enum RTCRtpTransceiverDirection which indicates the
-          transceiver's current directionality, or null if the transceiver is
-          stopped or has never participated in an exchange of offers
-          and answers. *)
+      (** Indicates the transceiver's current directionality, or null if the
+          transceiver is stopped or has never participated in an exchange of
+          offers and answers. *)
       method currentDirection : Js.js_string Js.t Js.opt Js.readonly_prop
 
-      (** A string from the enum RTCRtpTransceiverDirection which is used to
-          set the transceiver's desired direction. *)
+      (** Used to set the transceiver's desired direction. *)
       method direction : Js.js_string Js.t Js.prop
 
       (** The media ID of the m-line associated with this transceiver.
@@ -787,21 +770,20 @@ class type _RTCPeerConnection =
           IANA maintains a registry of valid MIME types. *)
       method mimeType : Js.js_string Js.t Js.optdef Js.readonly_prop
 
-      (** An unsigned long integer value specifying the codec's clock rate
-          in hertz (Hz). The clock rate is the rate at which the codec's RTP
-          timestamp advances. Most codecs have specific values or ranges of
-          values they permit; see the IANA payload format media type registry
-          for details. *)
+      (** Specifies the codec's clock rate in hertz (Hz). The clock rate is
+          the rate at which the codec's RTP timestamp advances. Most codecs
+          have specific values or ranges of values they permit; see the IANA
+          payload format media type registry for details. *)
       method clockRate : int Js.optdef Js.readonly_prop
 
-      (** An unsigned short integer indicating the number of channels the codec
-          should support. For example, for audio codecs, a value of 1 specifies
+      (** Indicates the number of channels the codec should support.
+          For example, for audio codecs, a value of 1 specifies
           monaural sound while 2 indicates stereo. *)
       method channels : int Js.optdef Js.readonly_prop
 
-      (** A DOMString containing the format-specific parameters field from the
-          "a=fmtp" line in the codec's SDP, if one is present; see section 5.8
-          of the IETF specification for JSEP. *)
+      (** Contains the format-specific parameters field from the "a=fmtp"
+          line in the codec's SDP, if one is present; see section 5.8 of the
+          IETF specification for JSEP. *)
       method sdpFmtpLine : Js.js_string Js.t Js.optdef Js.readonly_prop
 
     end
@@ -810,7 +792,6 @@ class type _RTCPeerConnection =
       decoding of data for a MediaStreamTrack on an RTCPeerConnection. *)
   and _RTCRtpReceiver =
     object
-
       (* TODO implement *)
 
       (** The MediaStreamTrack which is being handled by the RTCRtpSender.
@@ -827,7 +808,6 @@ class type _RTCPeerConnection =
       which can be used to send DTMF codes to the remote peer. *)
   and _RTCRtpSender =
     object
-
       (* Properties *)
 
       (** An RTCDTMFSender which can be used to send DTMF tones using
@@ -845,7 +825,7 @@ class type _RTCPeerConnection =
       method rtcpTransport : 'a Js.t Js.opt Js.readonly_prop
 
       (** The MediaStreamTrack which is being handled by the RTCRtpSender.
-          If track is null, the RTCRtpSender doesn't transmit anything. *)
+          If track is [null], the RTCRtpSender doesn't transmit anything. *)
       method track : mediaStreamTrack Js.t Js.opt Js.readonly_prop
 
       (* FIXME add type *)
@@ -860,11 +840,10 @@ class type _RTCPeerConnection =
           for the encoding and transmission of media on the track. *)
       method getParameters : _RTCRtpParameters Js.t Js.meth
 
-      (* FIXME add type *)
       (** Returns a Promise which is fulfilled with a RTCStatsReport which
           provides statistics data for all outbound streams being sent using
           this RTCRtpSender. *)
-      method getStats : 'a Js.t Js.meth
+      method getStats : (_RTCStatsReport Js.t, exn) Promise.t Js.meth
 
       (** Applies changes to parameters which configure how the track is encoded
           and transmitted to the remote peer. *)
@@ -876,8 +855,8 @@ class type _RTCPeerConnection =
           be used, for example, to toggle between the front- and rear-facing
           cameras on a device. *)
       method replaceTrack : mediaStreamTrack Js.t Js.opt ->
-                            (unit, exn) promise Js.meth
-      method replaceTrack_void : (unit, exn) promise Js.meth
+                            (unit, exn) Promise.t Js.meth
+      method replaceTrack_void : (unit, exn) Promise.t Js.meth
 
     end
 
@@ -935,10 +914,10 @@ class type _RTCPeerConnection =
     object
       (* Properties *)
 
-      (** A DOMString which contains the list of DTMF tones currently in the
-          queue to be transmitted (tones which have already been played are no
-          longer included in the string). See toneBuffer for details on the
-          format of the tone buffer. *)
+      (** Contains the list of DTMF tones currently in the queue to be
+          transmitted (tones which have already been played are no longer
+          included in the string). See toneBuffer for details on the format
+          of the tone buffer. *)
       method toneBuffer : Js.js_string Js.t Js.readonly_prop
 
       (* Methods *)
@@ -961,46 +940,6 @@ class type _RTCPeerConnection =
       method ontonechange
              : ('b Js.t, _RTCTrackEvent Js.t) Dom.event_listener
                  Js.writeonly_prop
-    end
-
-  (** The RTCDTMFToneChangeEvent interface represents events sent to indicate
-      that DTMF tones have started or finished playing.
-      This interface is used by the tonechange event. *)
-  and _RTCDTMFToneChangeEvent =
-    object
-      inherit [_RTCDTMFSender] Dom.event
-
-      (** A DOMString specifying the tone which has begun playing, or an empty
-          string ("") if the previous tone has finished playing. *)
-      method tone : Js.js_string Js.t Js.readonly_prop
-    end
-
-  and _RTCPeerConnectionIceEvent =
-    object
-      inherit [_RTCPeerConnection] Dom.event
-
-      method candidate : _RTCIceCandidate Js.t Js.opt Js.readonly_prop
-    end
-
-  and _RTCTrackEvent =
-    object
-      inherit [_RTCPeerConnection] Dom.event
-
-      (* TODO add type *)
-      (** The RTCRtpReceiver used by the track that's been added
-          to the RTCPeerConnection. *)
-      method receiver : 'a Js.t Js.readonly_prop
-
-      (** An array of MediaStream objects, each representing one of the media
-          streams which comprise the track that was added to the connection.
-          By default, the array is empty. *)
-      method streams : mediaStream Js.t Js.js_array Js.t Js.readonly_prop
-
-      (** The MediaStreamTrack which has been added to the connection. *)
-      method track : mediaStreamTrack Js.t Js.readonly_prop
-
-      (** The RTCRtpTransceiver being used by the new track. *)
-      method transceiver : _RTCRtpTransceiver Js.t Js.readonly_prop
     end
 
   (** The WebRTC API's RTCIceCandidateInit dictionary, which contains the
@@ -1029,50 +968,46 @@ class type _RTCPeerConnection =
           no such associated exists. The default is null. *)
       method sdpMLineIndex : int Js.opt Js.optdef_prop
 
-      (** A DOMString containing a string which uniquely identifies the remote
-          peer. This string is generated by WebRTC at the beginning of the session,
-          and at least 24 bits worth of the string contain random data.
-          The string may be up to 256 characters long. This property has no default
-          value and is not present unless set explicitly. *)
+      (** A string which uniquely identifies the remote peer. This string is
+          generated by WebRTC at the beginning of the session, and at least 24
+          bits worth of the string contain random data. The string may be up to
+          256 characters long. This property has no default value and is not
+          present unless set explicitly. *)
       method usernameFragment : Js.js_string Js.t Js.optdef_prop
     end
 
   and _RTCIceCandidate =
     object
-      (** A DOMString representing the transport address for the candidate
-          that can be used for connectivity checks. The format of this address
-          is a candidate-attribute as defined in RFC 5245.
-          This string is empty ("") if the RTCIceCandidate is an
-          "end of candidates" indicator. *)
+      (** The transport address for the candidate that can be used for
+          connectivity checks. The format of this address is a
+          candidate-attribute as defined in RFC 5245. This string is empty ("")
+          if the RTCIceCandidate is an "end of candidates" indicator. *)
       method candidate : Js.js_string Js.t Js.readonly_prop
 
-      (** A DOMString which indicates whether the candidate is an RTP or an
-          RTCP candidate; its value is either "rtp" or "rtcp", and is derived
-          from the  "component-id" field in the candidate a-line string.
-          The permitted values are listed in the RTCIceComponent
-          enumerated type. *)
+      (** Indicates whether the candidate is an RTP or an RTCP candidate; its
+          value is either "rtp" or "rtcp", and is derived from the "component-id"
+          field in the candidate a-line string. The permitted values are listed
+          in the RTCIceComponent enumerated type. *)
       method component : Js.js_string Js.t Js.readonly_prop
 
-      (** Returns a DOMString containing a unique identifier that is the same
-          for any candidates of the same type, share the same base (the address
-          from which the ICE agent sent the candidate), and come from the same
-          STUN server. This is used to help optimize ICE performance while
-          prioritizing and correlating candidates that appear on multiple
-          RTCIceTransport objects. *)
+      (** Unique identifier that is the same for any candidates of the same type,
+          share the same base (the address from which the ICE agent sent the
+          candidate), and come from the same STUN server. This is used to help
+          optimize ICE performance while prioritizing and correlating candidates
+          that appear on multiple RTCIceTransport objects. *)
       method foundation : Js.js_string Js.t Js.readonly_prop
 
-      (** A DOMString containing the IP address of the candidate. *)
+      (** IP address of the candidate. *)
       method ip : Js.js_string Js.t Js.readonly_prop
 
-      (** An integer value indicating the candidate's port number. *)
+      (** Candidate's port number. *)
       method port : int Js.readonly_prop
 
-      (** A long integer value indicating the candidate's priority. *)
+      (** Candidate's priority. *)
       method priority : int Js.readonly_prop
 
-      (** A string indicating whether the candidate's protocol is "tcp" or
-          "udp". The string is one of those in the enumerated type
-          RTCIceProtocol. *)
+      (** Indicates whether the candidate's protocol is "tcp" or "udp".
+          The string is one of those in the enumerated type RTCIceProtocol. *)
       method protocol : Js.js_string Js.t Js.readonly_prop
 
       (** If the candidate is derived from another candidate, relatedAddress
@@ -1086,31 +1021,29 @@ class type _RTCPeerConnection =
           For host candidates, the relatedPort property is null. *)
       method relatedPort : int Js.opt Js.readonly_prop
 
-      (** A DOMString specifying the candidate's media stream identification
-          tag which uniquely identifies the media stream within the component
-          with which the candidate is associated, or null if no such association
-          exists. *)
+      (** Candidate's media stream identification tag which uniquely identifies
+          the media stream within the component with which the candidate is
+          associated, or null if no such association exists. *)
       method sdpMid : Js.js_string Js.t Js.readonly_prop
 
-      (** If not null, sdpMLineIndex indicates the zero-based index number of
+      (** If not [null], sdpMLineIndex indicates the zero-based index number of
           the media description (as defined in RFC 4566) in the SDP with which
           the candidate is associated. *)
       method sdpMLineIndex : int Js.opt Js.readonly_prop
 
       (** If protocol is "tcp", tcpType represents the type of TCP candidate.
-          Otherwise, tcpType is null. *)
+          Otherwise, tcpType is [null]. *)
       method tcpType : Js.js_string Js.t Js.opt Js.readonly_prop
 
-      (** A DOMString indicating the type of candidate as one of the strings
-          from the RTCIceCandidateType enumerated type. *)
+      (** Indicates the type of candidate as one of the strings from the
+          RTCIceCandidateType enumerated type. *)
       method _type : Js.js_string Js.t Js.readonly_prop
 
-      (** A DOMString containing a randomly-generated username fragment
-          ("ice-ufrag") which ICE uses for message integrity along with
-          a randomly-generated password ("ice-pwd"). You can use this string to
-          verify generations of ICE generation; each generation of the same ICE
-          process will use the same usernameFragment, even across ICE restarts.
-       *)
+      (** Contains a randomly-generated username fragment ("ice-ufrag") which
+          ICE uses for message integrity along with a randomly-generated password
+          ("ice-pwd"). You can use this string to verify generations of ICE
+          generation; each generation of the same ICE process will use the same
+          usernameFragment, even across ICE restarts. *)
       method usernameFragment : Js.js_string Js.t Js.readonly_prop
 
       (** Given the RTCIceCandidate's current configuration, toJSON() returns
@@ -1123,7 +1056,7 @@ class type _RTCPeerConnection =
   and _RTCSessionDescriptionInit =
     object
 
-      (** DOMString sdp *)
+      (** Session description's type. *)
       method _type : Js.js_string Js.t Js.prop
 
       (** The string representation of the SDP;
@@ -1134,11 +1067,10 @@ class type _RTCPeerConnection =
 
   and _RTCSessionDescription =
     object
-      (** An enum of type RTCSdpType describing the session description's
-          type. *)
+      (** Session description's type. *)
       method _type : Js.js_string Js.t Js.readonly_prop
 
-      (** A DOMString containing the SDP describing the session.*)
+      (** SDP describing the session.*)
       method sdp : Js.js_string Js.t Js.readonly_prop
     end
 
@@ -1151,153 +1083,110 @@ class type _RTCPeerConnection =
     object
       (* Properties *)
 
-      (** The property binaryType on the RTCDataChannel interface is a DOMString
-          which specifies the type of JavaScript object which should be used to
+      (** Specifies the type of JavaScript object which should be used to
           represent binary data received on the RTCDataChannel. Values allowed
           by the WebSocket.binaryType property are also permitted here: "blob"
           if Blob objects are being used or "arraybuffer" if ArrayBuffer objects
           are being used. The default is "blob". *)
       method binaryType : Js.js_string Js.t Js.prop
 
-      (** The read-only RTCDataChannel property bufferedAmount returns the
-          number of bytes of data currently queued to be sent over the data
+      (** The number of bytes of data currently queued to be sent over the data
           channel. *)
       method bufferedAmount : int Js.readonly_prop
 
-      (** The RTCDataChannel property bufferedAmountLowThreshold is used to
-          specify the number of bytes of buffered outgoing data that is
-          considered "low." The default value is 0. *)
+      (** The number of bytes of buffered outgoing data that is considered "low".
+          The default value is 0. *)
       method bufferedAmountLowtThreshold : int Js.prop
 
-      (** The read-only RTCDataChannel property id returns an ID number
-          (between 0 and 65,534) which uniquely identifies the
-          RTCDataChannel. *)
+      (** ID number (between 0 and 65,534) which uniquely identifies
+          the RTCDataChannel. *)
       method id : int Js.readonly_prop
 
-      (** The read-only RTCDataChannel property label returns a DOMString
-          containing a name describing the data channel. These labels are not
-          required to be unique. *)
+      (** Name describing the data channel.
+          These labels are not required to be unique. *)
       method label : Js.js_string Js.t Js.readonly_prop
 
-      (** The read-only RTCDataChannel property maxPacketLifeTime returns
-          the amount of time, in milliseconds, the browser is allowed to take
+      (** The amount of time, in milliseconds, the browser is allowed to take
           to attempt to transmit a message, as set when the data channel was
           created, or null. *)
       method maxPacketLifeTime : int Js.opt Js.readonly_prop
 
-      (** The read-only RTCDataChannel property maxRetransmits returns the
-          maximum number of times the browser should try to retransmit a message
-          before giving up, as set when the data channel was created, or null,
-          which indicates that there is no maximum. *)
+      (** The maximum number of times the browser should try to retransmit a
+          message before giving up, as set when the data channel was created,
+          or null, which indicates that there is no maximum. *)
       method maxRetransmits : int Js.opt Js.readonly_prop
 
-      (** The read-only RTCDataChannel property negotiated indicates whether
-          the RTCDataChannel's connection was negotiated by the Web app (true)
-          or by the WebRTC layer (false). The default is false. *)
+      (** Indicates whether the RTCDataChannel's connection was negotiated by
+          the Web app (true) or by the WebRTC layer (false). The default is
+          false. *)
       method negotiated : bool Js.t Js.readonly_prop
 
-      (** The read-only RTCDataChannel property ordered indicates whether or
-          not the data channel guarantees in-order delivery of messages;
-          the default is true, which indicates that the data channel is indeed
-          ordered. *)
+      (** Indicates whether or not the data channel guarantees in-order delivery
+          of messages; the default is true, which indicates that the data channel
+          is indeed ordered. *)
       method ordered : bool Js.t Js.readonly_prop
 
-      (** The read-only RTCDataChannel property protocol returns a DOMString
-          containing the name of the subprotocol in use. If no protocol was
+      (** Contains the name of the subprotocol in use. If no protocol was
           specified when the data channel was created, then this property's
-          value is "" (the empty string). *)
+          value is "" *)
       method protocol : Js.js_string Js.t Js.readonly_prop
 
-      (** The read-only RTCDataChannel property readyState returns an enum of
-          type RTCDataChannelState which indicates the state of the data
-          channel's underlying data connection. *)
+      (** Indicates the state of the data channel's underlying data connection. *)
       method readyState : Js.js_string Js.t Js.readonly_prop
 
       (* Event handlers *)
 
-      (** The RTCDataChannel.onbufferedamountlow property is an EventHandler
-          which specifies a function the browser calls when the
-          bufferedamountlow event is sent to the RTCDataChannel. This event,
-          which is represented by a simple Event object, is sent when the
-          amount of data buffered to be sent falls to or below the threshold
-          specified by the channel's bufferedAmountLowThreshold. *)
+      (** Called when the bufferedamountlow event is sent to the RTCDataChannel.
+          This event, which is represented by a simple Event object, is sent
+          when the amount of data buffered to be sent falls to or below the
+          threshold specified by the channel's bufferedAmountLowThreshold. *)
       method onbufferedamountlow
-             : ('b Js.t, _RTCDataChannel Js.t Dom.event Js.t) Dom.event_listener
+             : ('b Js.t, _RTCDataChannel Dom.event Js.t) Dom.event_listener
                  Js.writeonly_prop
 
-      (** The RTCDataChannel.onclose property is an EventHandler which
-          specifies a function to be called by the browser when the close
-          event is received by the RTCDataChannel. This is a simple Event
-          which indicates that the data channel has closed down. *)
+      (** Called when the close event is received by the RTCDataChannel.
+          This is a simple Event which indicates that the data channel has
+          closed down. *)
       method onclose
-             : ('b Js.t, _RTCDataChannel Js.t Dom.event Js.t) Dom.event_listener
+             : ('b Js.t, _RTCDataChannel Dom.event Js.t) Dom.event_listener
                  Js.writeonly_prop
 
-      (** The RTCDataChannel.onerror property is an EventHandler which
-          specifies a function to be called when the error event is received.
-          When an error occurs on the data channel, the function receives as
-          input an ErrorEvent object describing the error which occurred. *)
+      (** Called when the error event is received. When an error occurs on the
+          data channel, the function receives as input an ErrorEvent object
+          describing the error which occurred. *)
       method onerror
-             : ('b Js.t, _RTCDataChannel Js.t _RTCErrorEvent Js.t) Dom.event_listener
+             : ('b Js.t, _RTCDataChannel _RTCErrorEvent Js.t) Dom.event_listener
                  Js.writeonly_prop
 
-      (** The RTCDataChannel.onmessage property stores an EventHandler which
-          specifies a function to be called when the message event is fired
-          on the channel. This event is represented by the MessageEvent
-          interface. This event is sent to the channel when a message is
-          received from the other peer. *)
+      (** Called when the message event is fired on the channel. This event is
+          represented by the MessageEvent interface. This event is sent to the
+          channel when a message is received from the other peer. *)
       method onmessage
-             : ('b Js.t, _RTCDataChannel Js.t messageEvent Js.t) Dom.event_listener
+             : ('b Js.t, _RTCDataChannel messageEvent Js.t) Dom.event_listener
                  Js.writeonly_prop
 
-      (** The RTCDataChannel.onopen property is an EventHandler which specifies
-          a function to be called when the open event is fired; this is a simple
-          Event which is sent when the data channel's underlying data
-          transport — the link over which the RTCDataChannel's messages flow —
-          is established or re-established. *)
+      (** Called when the open event is fired; this is a simple Event which is
+          sent when the data channel's underlying data transport — the link over
+          which the RTCDataChannel's messages flow — is established or
+          re-established. *)
       method onopen
-             : ('b Js.t, _RTCDataChannel Js.t Dom.event Js.t) Dom.event_listener
+             : ('b Js.t, _RTCDataChannel Dom.event Js.t) Dom.event_listener
                  Js.writeonly_prop
 
       (* Methods *)
 
-      (** The RTCDataChannel.close() method closes the RTCDataChannel.
-          Either peer is permitted to call this method to initiate closure
-          of the channel. *)
+      (** Closes the RTCDataChannel. Either peer is permitted to call this method
+          to initiate closure of the channel. *)
       method close : unit Js.meth
 
-      (** The send() method of the RTCDataChannel interface sends data across
-          the data channel to the remote peer. *)
+      (** Sends data across the data channel to the remote peer. *)
       method send_blob : #File.blob Js.t -> unit Js.meth
       method send_string : Js.js_string Js.t -> unit Js.meth
 
     end
 
-  and ['a] messageEvent =
-    object
-
-      (* TODO add 'source', 'ports' properties *)
-
-      inherit ['a] Dom.event
-
-      method data : 'b Js.t Js.readonly_prop
-
-      method origin : Js.js_string Js.t Js.readonly_prop
-
-      method lastEventId : Js.js_string Js.t Js.readonly_prop
-
-    end
-
-  and ['a] _RTCErrorEvent =
-    object
-      inherit ['a] Dom.event
-
-      method error : _RTCError Js.t Js.readonly_prop
-    end
-
   and _RTCError =
     object
-
       method errorDetail : Js.js_string Js.t Js.readonly_prop
 
       method sdpLineNumber : int Js.opt Js.readonly_prop
@@ -1314,8 +1203,6 @@ class type _RTCPeerConnection =
 
   and _RTCDataChannelInit =
     object
-      (* See RTCDataChannel for description *)
-
       method ordered : bool Js.t Js.optdef_prop
 
       method maxPacketLifeTime : int Js.opt Js.optdef_prop
@@ -1332,27 +1219,24 @@ class type _RTCPeerConnection =
 
   and mediaStream =
     object
-
       (* Properties *)
 
-      (** A DOMString containing 36 characters denoting a universally
-        unique identifier (UUID) for the object.*)
+      (** Contains 36 characters denoting a universally unique identifier (UUID)
+          for the object. *)
       method id : Js.js_string Js.t Js.prop
 
-      (** A Boolean value that returns true if the MediaStream is active,
-        or false otherwise. *)
+      (** [true] if the MediaStream is active, or [false] otherwise. *)
       method active : bool Js.t Js.prop
 
       (* Event handlers *)
 
-      (** An EventHandler containing the action to perform when an addtrack
-        event is fired when a new MediaStreamTrack object is added. *)
+      (** Called when an addtrack event is fired when a new MediaStreamTrack
+          object is added. *)
       method onaddtrack
              : ('b Js.t, mediaStreamTrackEvent Js.t) Dom.event_listener
                  Js.writeonly_prop
 
-      (** An EventHandler containing the action to perform when a removetrack
-        event is fired when a  MediaStreamTrack object is removed from it. *)
+      (** Called when a MediaStreamTrack object is removed from a stream. *)
       method onremovetrack
              : ('b Js.t, mediaStreamTrackEvent Js.t) Dom.event_listener
                  Js.writeonly_prop
@@ -1400,258 +1284,263 @@ class type _RTCPeerConnection =
 
     end
 
-  and mediaStreamTrackEvent =
-    object
-
-      inherit [mediaStream Js.t] Dom.event
-
-      method track : mediaStreamTrack Js.t Js.readonly_prop
-
-    end
-
   and mediaStreamTrack =
     object
+      (* Properties *)
 
-      (** Returns a DOMString containing a unique identifier (GUID)
-          for the track; it is generated by the browser. *)
+      (** Unique identifier (GUID) for the track *)
       method id : Js.js_string Js.t Js.readonly_prop
 
-      (** A Boolean whose value of true if the track is enabled,
-          that is allowed to render the media source stream;
-          or false if it is disabled, that is not rendering the media source
-          stream but silence and blackness. If the track has been disconnected,
-          this value can be changed but has no more effect. *)
+      (** [true] if the track is enabled, that is allowed to render the media
+          source stream; [false] if it is disabled, that is not rendering the
+          media source stream but silence and blackness. If the track has been
+          disconnected, this value can be changed but has no more effect. *)
       method enabled : bool Js.t Js.prop
 
-      (** A string that may be used by the web application to provide
-          a hint as to what type of content the track contains to guide
-          how it should be treated by API consumers. *)
+      (** May be used by the web application to provide a hint as to what type
+          of content the track contains to guide how it should be treated by
+          API consumers. *)
       method contentHint : Js.js_string Js.t Js.prop
 
-      (** Returns a Boolean value which is true if the track is isolated;
-          that is, the track cannot be accessed by the document that owns
-          the MediaStreamTrack. This happens when the peerIdentity property
-          is set, or if the track comes from a cross-origin source. *)
+      (** [true] if the track is isolated; that is, the track cannot be accessed
+          by the document that owns the MediaStreamTrack. This happens when the
+          peerIdentity property is set, or if the track comes from a cross-origin
+          source. *)
       method isolated : bool Js.t Js.readonly_prop
 
-      (** Returns a DOMString set to "audio" if the track is an audio track
-          and to "video", if it is a video track. It doesn't change if the
-          track is deassociated from its source. *)
+      (** ["audio"] if the track is an audio track and ["video"], if it is
+          a video track. It doesn't change if the track is deassociated from
+          its source. *)
       method kind : Js.js_string Js.t Js.readonly_prop
 
-      (** Returns a DOMString containing a user agent-assigned label that
-          identifies the track source, as in "internal microphone". The string
-          may be left empty and is empty as long as no source has been
-          connected. When the track is deassociated from its source, the label
-          is not changed. *)
+      (** User agent-assigned label that identifies the track source, as in
+          "internal microphone". The string may be left empty and is empty
+          as long as no source has been connected. When the track is deassociated
+          from its source, the label is not changed. *)
       method label : Js.js_string Js.t Js.readonly_prop
 
-      (** Returns a Boolean value indicating whether the track is unable to
-          provide media data due to a technical issue. *)
+      (** Indicates whether the track is unable to provide media data due to
+          a technical issue. *)
       method muted : bool Js.t Js.readonly_prop
 
-      (** Returns a Boolean value with a value of true if the track is
-          readonly (such a video file source or a camera that settings can't
-          be modified), false otherwise. *)
+      (** [true] if the track is readonly (such a video file source or a camera
+          that settings can't be modified), [false] otherwise. *)
       method readonly : bool Js.t Js.readonly_prop
 
-      (** Returns an enumerated value giving the status of the track.
-          This will be one of the following values:
-
-          "live" which indicates that an input is connected and does
-          its best-effort in providing real-time data. In that case, the
-          output of data can be switched on or off using the enabled attribute.
-
-          "ended" which indicates that the input is not giving any more data and
-          will never provide new data.*)
+      (** Status of the track. This will be one of the following values:
+          ["live"] - indicates that an input is connected and does its best-effor
+          t in providing real-time data. In that case, the output of data can be
+          switched on or off using the enabled attribute.
+          ["ended"] - indicates that the input is not giving any more data and
+          will never provide new data. *)
       method readyState : Js.js_string Js.t Js.readonly_prop
-
-      method applyConstraints : mediaTrackConstraints Js.t -> unit Js.meth
-
-      method clone : mediaStreamTrack Js.t Js.meth
-
-      method getCapabilities : unit Js.meth
-
-      method getConstraints : mediaTrackConstraints Js.t Js.meth
-
-      method getSettings : mediaTrackSettings Js.t Js.meth
-
-      method stop : unit Js.meth
 
       (* Event handlers *)
 
+      (** Called when an started event is fired on the object, that is when a
+          new MediaStreamTrack object is added. *)
+      method onstarted
+             : ('b Js.t, mediaStreamTrack Dom.event Js.t) Dom.event_listener
+                 Js.writeonly_prop
+
+      (** Called when an ended event is fired on the object, that is when a
+          MediaStreamTrack object is removed from it *)
       method onended
              : ('b Js.t, mediaStreamTrack Dom.event Js.t) Dom.event_listener
                  Js.writeonly_prop
 
+      (** Called when the isolationchange event is fired at the track object.
+          This occurs whenever the value of the isolated property changes due
+          to the document gaining or losing permission to access the track. *)
+      method onisolationchange
+             : ('b Js.t, mediaStreamTrack Dom.event Js.t) Dom.event_listener
+                 Js.writeonly_prop
+
+      (** Called when an mute event is fired on the object, that is when
+          the streaming is terminating. *)
+      method onmute
+             : ('b Js.t, mediaStreamTrack Dom.event Js.t) Dom.event_listener
+                 Js.writeonly_prop
+
+      (** Called when an unmute event is fired on the object, that is when a
+          MediaStreamTrack object is removed from it. *)
+      method onunmute
+             : ('b Js.t, mediaStreamTrack Dom.event Js.t) Dom.event_listener
+                 Js.writeonly_prop
+
+      (** Called when an overconstrained event is fired on the object, that is
+          when a MediaStreamTrack object is removed from it. *)
+      method onoverconstrained
+             : ('b Js.t, overconstrainedErrorEvent Js.t) Dom.event_listener
+                 Js.writeonly_prop
+
+      (* Methods *)
+
+      (** Lets the application specify the ideal and/or ranges of acceptable
+          values for any number of the available constrainable properties of
+          the MediaStreamTrack. *)
+      method applyConstraints : mediaTrackConstraints Js.t -> unit Js.meth
+
+      (** Returns a duplicate of the MediaStreamTrack. *)
+      method clone : mediaStreamTrack Js.t Js.meth
+
+      (** Returns the a list of constrainable properties available for
+          the MediaStreamTrack. *)
+      method getCapabilities : mediaTrackCapabilities Js.t Js.meth
+
+      (** Returns a MediaTrackConstraints object containing the currently
+          set constraints for the track; the returned value matches the
+          constraints last set using applyConstraints(). *)
+      method getConstraints : mediaTrackConstraints Js.t Js.meth
+
+      (** Returns a MediaTrackSettings object containing the current values
+          of each of the MediaStreamTrack's constrainable properties. *)
+      method getSettings : mediaTrackSettings Js.t Js.meth
+
+      (** Stops playing the source associated to the track, both the source
+          and the track are deassociated. The track state is set to ended. *)
+      method stop : unit Js.meth
+
+    end
+
+  and overconstrainedError =
+    object
+      method constraint_ : Js.js_string Js.t Js.readonly_prop
+
+      method message : Js.js_string Js.t Js.readonly_prop
+
+      method name : Js.js_string Js.t Js.readonly_prop
     end
 
   and mediaTrackSettings =
     object
 
-      (** A DOMString indicating the current value of the deviceId property.
-          The device ID is a origin-unique string identifying the source of
-          the track; this is usually a GUID. This value is specific to the
-          source of the track's data and is not usable for setting constraints;
-          it can, however, be used for initially selecting media when calling
-          MediaDevices.getUserMedia(). *)
-      method deviceId : Js.js_string Js.t Js.prop
-
-      (** A DOMString indicating the current value of the groupId property.
-          The group ID is a browsing session-unique string identifying the
-          source group of the track. Two devices (as identified by the deviceId)
-          are considered part of the same group if they are from the same
-          physical device. For instance, the audio input and output devices for
-          the speaker and microphone built into a phone would share the same
-          group ID, since they're part of the same physical device.
-          The microphone on a headset would have a different ID, though.
+      (** Current value of the deviceId property. The device ID is a origin-unique
+          string identifying the source of the track; this is usually a GUID.
           This value is specific to the source of the track's data and is not
           usable for setting constraints; it can, however, be used for initially
           selecting media when calling MediaDevices.getUserMedia(). *)
-      method groupId : Js.js_string Js.t Js.prop
+      method deviceId : Js.js_string Js.t Js.optdef_prop
+
+      (** The group ID is a browsing session-unique string identifying the source
+          group of the track. Two devices (as identified by the deviceId) are
+          considered part of the same group if they are from the same physical
+          device. For instance, the audio input and output devices for the speaker
+          and microphone built into a phone would share the same group ID, since
+          they're part of the same physical device. The microphone on a headset
+          would have a different ID, though. This value is specific to the source
+          of the track's data and is not usable for setting constraints; it can,
+          however, be used for initially selecting media when calling
+          MediaDevices.getUserMedia(). *)
+      method groupId : Js.js_string Js.t Js.optdef_prop
 
       (* AUDIO *)
 
-      (** A Boolean which indicates the current value of the autoGainControl
-          property, which is true if automatic gain control is enabled and is
-          false otherwise. *)
-      method audioGainControl : bool Js.t Js.prop
+      (** [true] if automatic gain control is enabled and is [false] otherwise. *)
+      method audioGainControl : bool Js.t Js.optdef_prop
 
       (** A long integer value indicating the current value of the channelCount
           property, specifying the number of audio channels present on the track
           (therefore indicating how many audio samples exist in each audio
           frame). This is 1 for mono, 2 for stereo, and so forth. *)
-      method channelCount : int Js.t Js.prop
+      method channelCount : int Js.t Js.optdef_prop
 
       (** A Boolean indicating the current value of the echoCancellation
           property, specifying true if echo cancellation is enabled,
           otherwise false. *)
-      method echoCancellation : bool Js.t Js.prop
+      method echoCancellation : bool Js.t Js.optdef_prop
 
-      (** A double-precision floating point value indicating the current
-          value of the latency property, specifying the audio latency,
-          in seconds. Latency is the amount of time which elapses between
-          the start of processing the audio and the data being available to
-          the next stop in the audio utilization process.
-          This value is a target value; actual latency may vary to some extent
-          for various reasons. *)
-      method latency : float Js.t Js.prop
+      (** Audio latency, in seconds. Latency is the amount of time which elapses
+          between the start of processing the audio and the data being available
+          to the next stop in the audio utilization process. This value is a
+          target value; actual latency may vary to some extent for various
+          reasons. *)
+      method latency : float Js.t Js.optdef_prop
 
-      (** A Boolean which indicates the current value of the noiseSupression
-          property, which is true if noise suppression is enabled and is false
-          otherwise. *)
-      method noiseSuppression : bool Js.t Js.prop
+      (** [true] if noise suppression is enabled and is [false] otherwise. *)
+      method noiseSuppression : bool Js.t Js.optdef_prop
 
-      (** A long integer value indicating the current value of the sampleRate
-          property, specifying the sample rate in samples per second of the
-          audio data. Standard CD-quality audio, for example, has a sample rate
-          of 41,000 samples per second. *)
-      method sampleRate : int Js.t Js.prop
+      (** Sample rate in samples per second of the audio data. Standard CD-quality
+          audio, for example, has a sample rate of 41,000 samples per second. *)
+      method sampleRate : int Js.t Js.optdef_prop
 
-      (** A long integer value indicating the current value of the sampleSize
-          property, specifying the linear size, in bits, of each audio sample.
-          CD-quality audio, for example, is 16-bit, so this value would be 16
-          in that case. *)
-      method sampleSize : int Js.t Js.prop
+      (** Linear size, in bits, of each audio sample. CD-quality audio, for
+          example, is 16-bit, so this value would be 16 in that case. *)
+      method sampleSize : int Js.t Js.optdef_prop
 
-      (** A double-precision floating point value indicating the current value
-          of the volume property, specifying the volume level of the track.
-          This value will be between 0.0 (silent) to 1.0
-          (maximum supported volume). *)
-      method volume : float Js.t Js.prop
+      (** Volume level of the track. This value will be between 0.0 (silent)
+          to 1.0 (maximum supported volume). *)
+      method volume : float Js.t Js.optdef_prop
 
       (* VIDEO *)
 
-      (** A double-precision floating point value indicating the current value
-          of the aspectRatio property, specified precisely to 10 decimal places.
-          This is the width of the image in pixels divided by its height in
-          pixels. Common values include 1.3333333333 (for the classic televison
-          4:3 "standard" aspect ratio, also used on tablets such as Apple's
-          iPad), 1.7777777778 (for the 16:9 high-definition widescreen aspect
-          ratio), and 1.6 (for the 16:10 aspect ratio common among widescreen
-          computers and tablets). *)
-      method aspectRatio : float Js.t Js.prop
+      (** The width of the image in pixels divided by its height in pixels.
+          Common values include 1.3333333333 (for the classic televison 4:3
+          "standard" aspect ratio, also used on tablets such as Apple's iPad),
+          1.7777777778 (for the 16:9 high-definition widescreen aspect ratio),
+          and 1.6 (for the 16:10 aspect ratio common among widescreen computers
+          and tablets). *)
+      method aspectRatio : float Js.t Js.optdef_prop
 
-      (** A DOMString indicating the current value of the facingMode property,
-          specifying the direction the camera is facing. The value will be one
-          of:
-          - "user"
-          A camera facing the user (commonly known as a "selfie cam"), used for
-          self-portraiture and video calling.
-          - "environment"
-          A camera facing away from the user (when the user is looking at the
-          screen). This is typically the highest quality camera on the device,
-          used for general photography.
-          - "left"
-          A camera facing toward the environment to the user's left.
-          - "right"
-          A camera facing toward the environment to the user's right. *)
-      method facingMode : Js.js_string Js.t Js.prop
+      (** The direction the camera is facing. The value will be one of:
+          ["user"] - a camera facing the user (commonly known as a "selfie cam"),
+          used for self-portraiture and video calling.
+          ["environment"] - a camera facing away from the user (when the user is
+          looking at the screen). This is typically the highest quality camera on
+          the device, used for general photography.
+          ["left"] - a camera facing toward the environment to the user's left.
+          ["right"] - a camera facing toward the environment to the user's
+          right. *)
+      method facingMode : Js.js_string Js.t Js.optdef_prop
 
-      (** A double-precision floating point value indicating the current
-          value of the frameRate property, specifying how many frames of
-          video per second the track includes. If the value can't be determined
-          for any reason, the value will match the vertical sync rate of the
-          device the user agent is running on. *)
-      method frameRate : float Js.t Js.prop
+      (** Specifies how many frames of video per second the track includes.
+          If the value can't be determined for any reason, the value will match
+          the vertical sync rate of the device the user agent is running on. *)
+      method frameRate : float Js.t Js.optdef_prop
 
-      (** A long integer value indicating the current value of the height
-          property, specifying the height of the track's video data in
-          pixels. *)
-      method height : int Js.t Js.prop
+      (** Height of the track's video data in pixels. *)
+      method height : int Js.t Js.optdef_prop
 
-      (** A long integer value indicating the current value of the width
-          property, specifying the width of the track's video data in pixels. *)
-      method width : int Js.t Js.prop
+      (** Width of the track's video data in pixels. *)
+      method width : int Js.t Js.optdef_prop
 
-      (** A DOMString indicating the current value of the resizeMode property,
-          specifying the mode used by the user agent to derive the resolution
-          of the track. The value will be one of:
-          - "none"
-          The track has the resolution offered by the camera, its driver or
-          the OS.
-          - "crop-and-scale"
-          The track's resolution might be the result of the user agent using
-          cropping or downscaling from a higher camera resolution. *)
-      method resizeMode : Js.js_string Js.t Js.prop
+      (** The mode used by the user agent to derive the resolution of the track.
+          The value will be one of:
+          ["none"] - the track has the resolution offered by the camera, its
+          driver or the OS.
+          ["crop-and-scale"] - the track's resolution might be the result of the
+          user agent using cropping or downscaling from a higher camera
+          resolution. *)
+      method resizeMode : Js.js_string Js.t Js.optdef_prop
 
       (* SHARED SCREEN TRACKS *)
 
-      (** A DOMString which indicates whether or not the mouse cursor is being
-          included in the generated stream and under what conditions.
-          Possible values are:
-          - always
-          The mouse is always visible in the video content of the
+      (** Indicates whether or not the mouse cursor is being included in the
+          generated stream and under what conditions. Possible values are:
+          ["always"] - the mouse is always visible in the video content of the
           {domxref("MediaStream"), unless the mouse has moved outside the area
           of the content.
-          - motion
-          The mouse cursor is always included in the video if it's moving, and
-          for a short time after it stops moving.
-          - never
-          The mouse cursor is never included in the shared video. *)
-      method cursor : Js.js_string Js.t Js.prop
+          ["motion"] - the mouse cursor is always included in the video if it's
+          moving, and for a short time after it stops moving.
+          ["never"] - the mouse cursor is never included in the shared video. *)
+      method cursor : Js.js_string Js.t Js.optdef_prop
 
-      (** A DOMString which specifies the type of source the track contains;
-          one of:
-          - application
-          The stream contains all of the windows of the application chosen
-          by the user rendered into the one video track.
-          - browser
-          The stream contains the contents of a single browser tab selected
-          by the user.
-          - monitor
-          The stream's video track contains the entire contents of one or
-          more of the user's screens.
-          - window
-          The stream contains a single window selected by the user for
-          sharing. *)
-      method displaySurface : Js.js_string Js.t Js.prop
+      (** The type of source the track contains; one of:
+          ["application"] - the stream contains all of the windows of the
+          application chosen by the user rendered into the one video track.
+          ["browser"] - the stream contains the contents of a single browser
+          tab selected by the user.
+          ["monitor"] - the stream's video track contains the entire contents
+          of one or more of the user's screens.
+          ["window"] - the stream contains a single window selected by the user
+          for sharing. *)
+      method displaySurface : Js.js_string Js.t Js.optdef_prop
 
-      (** A Boolean value which, if true, indicates that the video contained in
-          the stream's video track contains a background rendering context,
-          rather than a user-visible one. This is false if the video being
-          captured is coming from a foreground (user-visible) source. *)
-      method logicalSurface : bool Js.t Js.prop
+      (** If [true], indicates that the video contained in the stream's video
+          track contains a background rendering context, rather than a
+          user-visible one. This is false if the video being captured is
+          coming from a foreground (user-visible) source. *)
+      method logicalSurface : bool Js.t Js.optdef_prop
 
     end
 
@@ -1660,46 +1549,42 @@ class type _RTCPeerConnection =
 
       (* Properties of all media tracks *)
 
-      (** A ConstrainDOMString object specifying a device ID or an array of
-          device IDs which are acceptable and/or required. *)
+      (** A device ID or an array of device IDs which are acceptable and/or
+          required. *)
       method deviceId : Constrain.String.t Js.t Js.optdef_prop
 
-      (** A ConstrainDOMString object specifying a group ID or an array of
-          group IDs which are acceptable and/or required. *)
+      (** A group ID or an array of group IDs which are acceptable and/or
+          required. *)
       method groupId : Constrain.String.t Js.t Js.optdef_prop
 
       (* Properties of audio tracks *)
 
-      (** A ConstrainBoolean object which specifies whether automatic gain
-          control is preferred and/or required. *)
+      (** Whether automatic gain control is preferred and/or required. *)
       method autoGainControl : Constrain.Bool.t Js.t Js.optdef_prop
 
-      (** A ConstrainLong specifying the channel count or range of channel
-          counts which are acceptable and/or required. *)
+      (** The channel count or range of channel counts which are acceptable
+          and/or required. *)
       method channelCount : Constrain.Long.t Js.t Js.optdef_prop
 
-      (** A ConstrainBoolean object specifying whether or not echo cancellation
-          is preferred and/or required. *)
+      (** Whether or not echo cancellation is preferred and/or required. *)
       method echoCancellation : Constrain.Bool.t Js.t Js.optdef_prop
 
-      (** A ConstrainDouble specifying the latency or range of latencies which
-          are acceptable and/or required. *)
+      (** The latency or range of latencies which are acceptable
+          and/or required. *)
       method latency : Constrain.Double.t Js.t Js.optdef_prop
 
-      (** A ConstrainBoolean which specifies whether noise suppression is
-          preferred and/or required. *)
+      (** Whether noise suppression is preferred and/or required. *)
       method noiseSuppression : Constrain.Bool.t Js.t Js.optdef_prop
 
-      (** A ConstrainLong specifying the sample rate or range of sample rates
-          which are acceptable and/or required. *)
+      (** The sample rate or range of sample rates which are acceptable
+          and/or required. *)
       method sampleRate : Constrain.Long.t Js.t Js.optdef_prop
 
-      (** A ConstrainLong specifying the sample size or range of sample sizes
-          which are acceptable and/or required. *)
+      (** The sample size or range of sample sizes which are acceptable
+          and/or required. *)
       method sampleSize : Constrain.Long.t Js.t Js.optdef_prop
 
-      (** A ConstrainDouble specifying the volume or range of volumes which are
-          acceptable and/or required. *)
+      (** The volume or range of volumes which are acceptable and/or required. *)
       method volume : Constrain.Double.t Js.t Js.optdef_prop
 
       (* Properties of image tracks *)
@@ -1721,121 +1606,133 @@ class type _RTCPeerConnection =
           of such objects, where value  is a double-precision integer. *)
       method pointsOfInterest : point Js.t or_array Js.t Js.optdef_prop
 
-      (** A ConstrainDouble (a double-precision integer) specifying f-stop
-          adjustment by up to ±3. *)
+      (** f-stop adjustment by up to ±3. *)
       method exposureCompensation : Constrain.Double.t Js.t Js.optdef_prop
 
-      (** A ConstrainDouble (a double-precision integer) specifying a desired
-          color temperature in degrees kelvin. *)
+      (** Desired color temperature in degrees kelvin. *)
       method colorTemperature : Constrain.Double.t Js.t Js.optdef_prop
 
-      (** A ConstrainDouble (a double-precision integer) specifying a desired
-          iso setting. *)
+      (** Desired iso setting. *)
       method iso : Constrain.Double.t Js.t Js.optdef_prop
 
-      (** A ConstrainDouble (a double-precision integer) specifying a desired
-          brightness setting. *)
+      (** Desired brightness setting. *)
       method brightness : Constrain.Double.t Js.t Js.optdef_prop
 
-      (** A ConstrainDouble (a double-precision integer) specifying the degree
-          of difference between light and dark. *)
+      (** Degree of difference between light and dark. *)
       method contrast : Constrain.Double.t Js.t Js.optdef_prop
 
-      (** A ConstrainDouble (a double-precision integer) specifying the degree
-          of color intensity. *)
+      (** Degree of color intensity. *)
       method saturation : Constrain.Double.t Js.t Js.optdef_prop
 
-      (** A ConstrainDouble (a double-precision integer) specifying the
-          intensity of edges. *)
+      (** Intensity of edges. *)
       method sharpness : Constrain.Double.t Js.t Js.optdef_prop
 
-      (** A ConstrainDouble (a double-precision integer) specifying distance
-          to a focused object. *)
+      (** Distance to a focused object. *)
       method focusDistance : Constrain.Double.t Js.t Js.optdef_prop
 
-      (** A ConstrainDouble (a double-precision integer) specifying the desired
-          focal length. *)
+      (** Desired focal length. *)
       method zoom : Constrain.Double.t Js.t Js.optdef_prop
 
-      (** A Boolean defining whether the fill light is continuously connected,
-          meaning it stays on as long as the track is active. *)
+      (** Whether the fill light is continuously connected, meaning it stays on
+          as long as the track is active. *)
       method torch : bool Js.t Js.optdef_prop
 
       (* Properties of video tracks *)
 
-      (** A ConstrainDouble specifying the video aspect ratio or range of aspect
-          ratios which are acceptable and/or required. *)
+      (** Video aspect ratio or range of aspect ratios which are acceptable
+          and/or required. *)
       method aspectRatio : Constrain.Double.t Js.t Js.optdef_prop
 
-      (** A ConstrainDOMString object specifying a facing or an array of facings
-          which are acceptable and/or required. *)
+      (** Facing or an array of facings which are acceptable and/or required. *)
       method facingMode : Constrain.String.t Js.t Js.optdef_prop
 
-      (** A ConstrainDouble specifying the frame rate or range of frame rates
-          which are acceptable and/or required. *)
+      (** Frame rate or range of frame rates which are acceptable
+          and/or required. *)
       method frameRate : Constrain.Double.t Js.t Js.optdef_prop
 
-      (** A ConstrainLong specifying the video height or range of heights which
-          are acceptable and/or required. *)
+      (** Video height or range of heights which are acceptable and/or required. *)
       method height : Constrain.Long.t Js.t Js.optdef_prop
 
-      (** A ConstrainLong specifying the video width or range of widths which
-          are acceptable and/or required. *)
+      (** Video width or range of widths which are acceptable and/or required. *)
       method width : Constrain.Long.t Js.t Js.optdef_prop
 
-      (** A ConstrainDOMString object specifying a mode or an array of modes
-          the UA can use to derive the resolution of a video track.
-          Allowed values are none and crop-and-scale. none means that the user
-          agent uses the resolution provided by the camera, its driver or
+      (** Mode or an array of modes the UA can use to derive the resolution of a
+          video track. Allowed values are none and crop-and-scale. none means that
+          the user agent uses the resolution provided by the camera, its driver or
           the OS. crop-and-scale means that the user agent can use cropping and
-          downscaling on the camera output  in order to satisfy other
-          constraints that affect the resolution. *)
+          downscaling on the camera output in order to satisfy other constraints
+          that affect the resolution. *)
       method resizeMode : Constrain.String.t Js.t Js.optdef_prop
 
       (* Properties of shared screen tracks *)
 
-      (** A ConstrainDOMString which specifies whether or not to include
-          the mouse cursor in the generated track, and if so, whether or not
-          to hide it while not moving. The value may be a single one of the
-          following strings, or an array of them to allow the browser
-          flexibility in deciding what to do about the cursor.
-          - always
-          The mouse is always visible in the video content of the
+      (** Whether or not to include the mouse cursor in the generated track,
+          and if so, whether or not to hide it while not moving. The value may
+          be a single one of the following strings, or an array of them to
+          allow the browser flexibility in deciding what to do about the cursor.
+          ["always"] - the mouse is always visible in the video content of the
           {domxref("MediaStream"), unless the mouse has moved outside the area
           of the content.
-          - motion
-          The mouse cursor is always included in the video if it's moving,
-          and for a short time after it stops moving.
-          - never
-          The mouse cursor is never included in the shared video. *)
+          ["motion"] - the mouse cursor is always included in the video if it's
+          moving, and for a short time after it stops moving.
+          ["never"] - the mouse cursor is never included in the shared video. *)
       method cursor : Constrain.String.t Js.t Js.optdef_prop
 
-      (** A ConstrainDOMString which specifies the types of display surface
-          that may be selected by the user. This may be a single one of the
-          following strings, or a list of them to allow multiple source
-          surfaces:
-          - application
-          The stream contains all of the windows of the application chosen by
-          the user rendered into the one video track.
-          - browser
-          The stream contains the contents of a single browser tab selected by
-          the user.
-          - monitor
-          The stream's video track contains the entire contents of one or more
-          of the user's screens.
-          - window
-          The stream contains a single window selected by the user for
-          sharing. *)
+      (** Types of display surface that may be selected by the user.
+          This may be a single one of the following strings, or a list of them
+          to allow multiple source surfaces:
+          ["application"] - the stream contains all of the windows of the
+          application chosen by the user rendered into the one video track.
+          ["browser"] - the stream contains the contents of a single browser tab
+          selected by the user.
+          ["monitor"] - the stream's video track contains the entire contents of
+          one or more of the user's screens.
+          ["window"] - the stream contains a single window selected by the user
+          for sharing. *)
       method displaySurface : Constrain.String.t Js.t Js.optdef_prop
 
-      (** A ConstrainBoolean value which may contain a single Boolean value
-          or a set of them, indicating whether or not to allow the user to
-          choose source surfaces which do not directly correspond to display
-          areas. These may include backing buffers for windows to allow capture
-          of window contents that are hidden by other windows in front of them,
-          or buffers containing larger documents that need to be scrolled
-          through to see the entire contents in their windows. *)
+      (** Whether or not to allow the user to choose source surfaces which do not
+          directly correspond to display areas. These may include backing buffers
+          for windows to allow capture of window contents that are hidden by other
+          windows in front of them, or buffers containing larger documents that
+          need to be scrolled through to see the entire contents in their
+          windows. *)
       method logicalSurface : Constrain.Bool.t Js.t Js.optdef_prop
+
+    end
+
+  and mediaTrackCapabilities =
+    object
+
+      method width : longRange Js.t Js.optdef_prop
+
+      method height : longRange Js.t Js.optdef_prop
+
+      method aspectRatio : doubleRange Js.t Js.optdef_prop
+
+      method frameRate : doubleRange Js.t Js.optdef_prop
+
+      method facingMode : Js.js_string Js.t or_array Js.t Js.optdef_prop
+
+      method volume : doubleRange Js.t Js.optdef_prop
+
+      method sampleRate : longRange Js.t Js.optdef_prop
+
+      method sampleSize : longRange Js.t Js.optdef_prop
+
+      method echoCancellation : bool Js.t or_array Js.t Js.optdef_prop
+
+      method autoGainControl : bool Js.t or_array Js.t Js.optdef_prop
+
+      method noiseSupression : bool Js.t or_array Js.t Js.optdef_prop
+
+      method latency : doubleRange Js.t Js.optdef_prop
+
+      method channelCount : longRange Js.t Js.optdef_prop
+
+      method deviceId : Js.js_string Js.t Js.optdef_prop
+
+      method groupId : Js.js_string Js.t Js.optdef_prop
 
     end
 
@@ -1898,10 +1795,10 @@ class type _RTCPeerConnection =
           "all" is assumed. *)
       method iceTransportPolicy : Js.js_string Js.t Js.optdef_prop
 
-      (** A DOMString which specifies the target peer identity for the
-          RTCPeerConnection. If this value is set (it defaults to null),
-          the RTCPeerConnection will not connect to a remote peer unless
-          it can successfully authenticate with the given name. *)
+      (** The target peer identity for the RTCPeerConnection. If this value
+          is set (it defaults to null), the RTCPeerConnection will not connect
+          to a remote peer unless it can successfully authenticate with the
+          given name. *)
       method peerIdentity : Js.js_string Js.t Js.optdef_prop
 
       (** The RTCP mux policy to use when gathering ICE candidates, in order
@@ -1909,6 +1806,104 @@ class type _RTCPeerConnection =
           the RTCRtcpMuxPolicy enum. The default is "require". *)
       method rtcpMuxPolicy : Js.js_string Js.t Js.optdef_prop
 
+    end
+
+  and mediaStreamEvent =
+    object
+      inherit [_RTCPeerConnection] Dom.event
+
+      (** Stream associated with the event. *)
+      method stream : mediaStream Js.t Js.readonly_prop
+    end
+
+  and mediaStreamTrackEvent =
+    object
+      inherit [mediaStream] Dom.event
+
+      method track : mediaStreamTrack Js.t Js.readonly_prop
+    end
+
+  and _RTCIdentityEvent =
+    object
+      inherit [_RTCPeerConnection] Dom.event
+
+      (** A blob being the assertion generated. *)
+      method assertion : Js.js_string Js.t Js.readonly_prop
+    end
+
+  and _RTCDataChannelEvent =
+    object
+      inherit [_RTCPeerConnection] Dom.event
+
+      (** RTCDataChannel associated with the event. *)
+      method channel : _RTCDataChannel Js.t Js.readonly_prop
+    end
+
+  and _RTCDTMFToneChangeEvent =
+    object
+      inherit [_RTCDTMFSender] Dom.event
+
+      (** Specifies the tone which has begun playing, or an empty
+          string ("") if the previous tone has finished playing. *)
+      method tone : Js.js_string Js.t Js.readonly_prop
+    end
+
+  and _RTCPeerConnectionIceEvent =
+    object
+      inherit [_RTCPeerConnection] Dom.event
+
+      (** The candidate associated with the event *)
+      method candidate : _RTCIceCandidate Js.t Js.opt Js.readonly_prop
+    end
+
+  and _RTCTrackEvent =
+    object
+      inherit [_RTCPeerConnection] Dom.event
+
+      (** The RTCRtpReceiver used by the track that's been added
+          to the RTCPeerConnection. *)
+      method receiver : _RTCRtpReceiver Js.t Js.readonly_prop
+
+      (** An array of MediaStream objects, each representing one of the media
+          streams which comprise the track that was added to the connection.
+          By default, the array is empty. *)
+      method streams : mediaStream Js.t Js.js_array Js.t Js.readonly_prop
+
+      (** The MediaStreamTrack which has been added to the connection. *)
+      method track : mediaStreamTrack Js.t Js.readonly_prop
+
+      (** The RTCRtpTransceiver being used by the new track. *)
+      method transceiver : _RTCRtpTransceiver Js.t Js.readonly_prop
+    end
+
+  and ['a] messageEvent =
+    object
+
+      (* TODO add 'source' and 'ports' properties *)
+
+      inherit ['a] Dom.event
+
+      method data : 'b Js.t Js.readonly_prop
+
+      method origin : Js.js_string Js.t Js.readonly_prop
+
+      method lastEventId : Js.js_string Js.t Js.readonly_prop
+
+    end
+
+  and ['a] _RTCErrorEvent =
+    object
+      inherit ['a] Dom.event
+
+      (** The RTCError describing the error that triggered the event (if any). *)
+      method error : _RTCError Js.t Js.opt Js.readonly_prop
+    end
+
+  and overconstrainedErrorEvent =
+    object
+      inherit [mediaStreamTrack] Dom.event
+
+      method error : overconstrainedError Js.t Js.opt Js.readonly_prop
     end
 
 type bool_or_constraints
@@ -1940,7 +1935,7 @@ class type mediaDevices =
         This event is delivered to the MediaDevices object when a media input
         or output device is attached to or removed from the user's computer. *)
     method ondevicechange :
-             ('b Js.t, mediaDevices Js.t Dom.event Js.t) Dom.event_listener
+             ('b Js.t, mediaDevices Dom.event Js.t) Dom.event_listener
                Js.writeonly_prop
 
     (* Methods *)
@@ -1948,7 +1943,7 @@ class type mediaDevices =
     (** Obtains an array of information about the media input and output devices
         available on the system. *)
     method enumerateDevices :
-             (mediaDeviceInfo Js.t Js.js_array Js.t, exn) promise Js.meth
+             (mediaDeviceInfo Js.t Js.js_array Js.t, exn) Promise.t Js.meth
 
     (** Returns an object conforming to MediaTrackSupportedConstraints
         indicating which constrainable properties are supported on the
@@ -1962,16 +1957,16 @@ class type mediaDevices =
         purposes.  Returns a promise that resolves to a MediaStream. *)
     method getDisplayMedia :
              mediaStreamConstraints Js.t ->
-             (mediaStream Js.t, exn) promise Js.meth
-    method getDisplayMedia_ : (mediaStream Js.t, exn) promise Js.t Js.meth
+             (mediaStream Js.t, exn) Promise.t Js.meth
+    method getDisplayMedia_ : (mediaStream Js.t, exn) Promise.t Js.t Js.meth
 
     (** With the user's permission through a prompt, turns on a camera and/or
         a microphone on the system and provides a MediaStream containing a video
         track and/or an audio track with the input. *)
     method getUserMedia :
              mediaStreamConstraints Js.t ->
-             (mediaStream Js.t, exn) promise Js.meth
-    method getUserMedia_ : (mediaStream Js.t, exn) promise Js.meth
+             (mediaStream Js.t, exn) Promise.t Js.meth
+    method getUserMedia_ : (mediaStream Js.t, exn) Promise.t Js.meth
 
   end
 
@@ -1980,27 +1975,22 @@ class type mediaDevices =
 
       (* Properties *)
 
-      (** Either a Boolean (which indicates whether or not an audio track
-          is requested) or a MediaTrackConstraints object providing the
-          constraints which must be met by the audio track included in the
+      (** Constraints which must be met by the audio track included in the
           returned MediaStream. If constraints are specified, an audio track
           is inherently requested. *)
       method audio : bool_or_constraints Js.t Js.optdef_prop
 
-      (** Either a Boolean (which indicates whether or not a video track
-          is requested) or a MediaTrackConstraints object providing the
-          constraints which must be met by the video track included in the
+      (** Constraints which must be met by the video track included in the
           returned MediaStream. If constraints are specified, a video track
           is inherently requested. *)
       method video : bool_or_constraints Js.t Js.optdef_prop
 
-      (** A DOMString identifying the peer who has sole access to the stream.
-          If this property is specified, only the indicated peer can receive
-          and use the stream. Streams isolated in this way can only be displayed
-          in a media element (<audio> or <video>) where the content is protected
-          just as if CORS cross-origin rules were in effect. When a peer
-          identity is set, MediaStreamTracks from that peer have their isolated
-          flag set to true. *)
+      (** The peer who has sole access to the stream. If this property is
+          specified, only the indicated peer can receive and use the stream.
+          Streams isolated in this way can only be displayed in a media element
+          (<audio> or <video>) where the content is protected just as if CORS
+          cross-origin rules were in effect. When a peer identity is set,
+          MediaStreamTracks from that peer have their isolated flag set to true. *)
       method peerIdentity : Js.js_string Js.t Js.optdef_prop
 
     end
@@ -2010,25 +2000,22 @@ class type mediaDevices =
 
       (* Properties *)
 
-      (** Returns a DOMString that is an identifier for the represented device
-          that is persisted across sessions. It is un-guessable by other
-          applications and unique to the origin of the calling application.
-          It is reset when the user clears cookies (for Private Browsing,
-          a different identifier is used that is not persisted across
-          sessions). *)
+      (** Identifier for the represented device that is persisted across sessions.
+          It is un-guessable by other applications and unique to the origin of the
+          calling application. It is reset when the user clears cookies (for
+          Private Browsing, a different identifier is used that is not persisted
+          across sessions). *)
       method deviceId : Js.js_string Js.t Js.readonly_prop
 
-      (** Returns a DOMString that is a group identifier. Two devices have the
-          same group identifier if they belong to the same physical device — for
-          example a monitor with both a built-in camera and a microphone. *)
+      (** Group identifier. Two devices have the same group identifier if they
+          belong to the same physical device — for example a monitor with both
+          a built-in camera and a microphone. *)
       method groupId : Js.js_string Js.t Js.readonly_prop
 
-      (** Returns an enumerated value that is either "videoinput",
-          "audioinput" or "audiooutput". *)
+      (** "videoinput", "audioinput" or "audiooutput". *)
       method kind : Js.js_string Js.t Js.readonly_prop
 
-      (** Returns a DOMString that is a label describing this device
-          (for example "External USB Webcam"). *)
+      (** Label describing this device (for example "External USB Webcam"). *)
       method label : Js.js_string Js.t Js.readonly_prop
 
     end

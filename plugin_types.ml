@@ -179,7 +179,7 @@ type t =
   ; on_webrtc_state : (webrtc_state -> unit) option
   ; on_media_state : (media_state -> unit) option
   ; on_slow_link : (slow_link -> unit) option
-  ; on_data : (string -> unit) option (* FIXME not only string *)
+  ; on_data : 'a. ('a Js.t -> unit) option
   ; on_data_open : (unit -> unit) option
   ; on_data_close : (unit -> unit) option
   ; on_data_error : (_RTCError Js.t -> unit) option

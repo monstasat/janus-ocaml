@@ -64,7 +64,7 @@ let send_trickle_candidate (t : t)
           Ok ())
 
 let on_ice_conn_state_change (t : t)
-      (_ : _RTCPeerConnection Js.t Dom.event Js.t) : bool Js.t =
+      (_ : _RTCPeerConnection Dom.event Js.t) : bool Js.t =
   begin match t.webrtc.pc with
   | None -> ()
   | Some (pc : _RTCPeerConnection Js.t) ->

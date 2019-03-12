@@ -327,6 +327,9 @@ let attach_plugin ?(opaque_id : string option)
           let on_message = match on_message with
             | None -> None
             | Some f -> Some (fun ?jsep m -> f ?jsep (Js.Unsafe.coerce m)) in
+          let on_data = match on_data with
+            | None -> None
+            | Some f -> Some (fun x -> f (Js.Unsafe.coerce x)) in
           let rm_from_session = fun (id : int) ->
             t.plugins := List.remove_assoc id !(t.plugins) in
           let (p : Plugin.t) =

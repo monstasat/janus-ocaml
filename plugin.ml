@@ -312,7 +312,7 @@ let handle_cached_candidates
     candidates##forEach (Js.wrap_callback cb);
     candidates##.length := 0)
 
-let add_tracks (stream : mediaStream Js.t) (pc : _RTCPeerConnection Js.t) =
+let add_tracks (pc : _RTCPeerConnection Js.t) (stream : mediaStream Js.t) =
   Log.ign_info "Adding local stream";
   let tracks = stream##getTracks in
   let cb = fun (track : mediaStreamTrack Js.t) _ _ ->
@@ -325,77 +325,69 @@ let streams_done ?(jsep : _RTCSessionDescriptionInit Js.t option)
       ?(stream : mediaStream Js.t option)
       (media : Media.t)
       (t : t) =
-  let update = Option.is_some t.webrtc.pc in
   let sdp_thread, w = Lwt.task () in
   Log.ign_debug ~inspect:(Js.Opt.option stream) "streams done:";
   Option.iter (fun (s : mediaStream Js.t) ->
       Log.ign_debug ~inspect:s##getAudioTracks " -- Audio tracks:";
       Log.ign_debug ~inspect:s##getVideoTracks " -- Video tracks:")
     stream;
-  (* If we still need to create a PeerConnection, let's do that *)
-  let (pc : _RTCPeerConnection Js.t) = match t.webrtc.pc with
-    | Some pc -> pc
-    | None ->
-       let pc = Peer_connection.create t in
-       t.webrtc <- { t.webrtc with pc = Some pc };
-       Peer_connection.init w pc t;
+  (* We're now capturing the new stream: check if we're updating or it's a new thing *)
+  let (pc : _RTCPeerConnection Js.t) =
+    match t.webrtc.local_stream, t.webrtc.pc, t.webrtc.stream_external with
+    | Some my_stream, Some pc, false ->
+       (* We only need to update the existing stream *)
+       let (audio_track : mediaStreamTrack Js.t option) =
+         match stream with
+         | None -> None
+         | Some s -> array_get s##getAudioTracks 0 in
+       begin match audio_track with
+       | None -> ()
+       | Some track ->
+          match media.audio.update with
+          | Some Add | Some Replace ->
+             update_stream ~typ:`Audio media.audio my_stream track pc
+          | _ -> ()
+       end;
+       let (video_track : mediaStreamTrack Js.t option) =
+         match stream with
+         | None -> None
+         | Some s -> array_get s##getVideoTracks 0 in
+       begin match video_track with
+       | None -> ()
+       | Some track ->
+          match media.video.update with
+          | Some Add | Some Replace ->
+             update_stream ~typ:`Video media.video my_stream track pc
+          | _ -> ()
+       end;
+       pc
+    | _ ->
+       t.webrtc <- { t.webrtc with local_stream = stream };
+       (* If we still need to create a PeerConnection, let's do that *)
+       let (pc : _RTCPeerConnection Js.t) = match t.webrtc.pc with
+         | Some pc -> pc
+         | None ->
+            let pc = Peer_connection.create t in
+            t.webrtc <- { t.webrtc with pc = Some pc };
+            Peer_connection.init w pc t;
+            pc in
+       Option.iter (add_tracks pc) t.webrtc.local_stream;
        pc in
-  (* We're now capturing the new stream:
-     check if we're updating or it's a new thing *)
-  begin match t.webrtc.local_stream, update, t.webrtc.stream_external with
-  | None, _, _ | _, false, _ | _, _, true ->
-     t.webrtc <- { t.webrtc with local_stream = stream };
-     begin match t.webrtc.local_stream with
-     | None -> ()
-     | Some stream -> add_tracks stream pc
-     end
-  | Some my_stream, _, _ ->
-     (* We only need to update the existing stream *)
-     let (audio_track : mediaStreamTrack Js.t option) =
-       match stream with
-       | None -> None
-       | Some s -> array_get s##getAudioTracks 0 in
-     begin match audio_track with
-     | None -> ()
-     | Some track ->
-        let send_en = Media.is_track_send_enabled media.audio in
-        match update, media.audio.update, send_en with
-        | true, Some Add, _ | true, Some Replace, _ | false, _, true  ->
-           update_stream ~typ:`Audio media.audio my_stream track pc
-        | _ -> ()
-     end;
-     let (video_track : mediaStreamTrack Js.t option) =
-       match stream with
-       | None -> None
-       | Some s -> array_get s##getVideoTracks 0 in
-     begin match video_track with
-     | None -> ()
-     | Some track ->
-        let send_en = Media.is_track_send_enabled media.video in
-        match update, media.video.update, send_en with
-        | true, Some Add, _ | true, Some Replace, _ | false, _, true  ->
-           update_stream ~typ:`Video media.video my_stream track pc
-        | _ -> ()
-     end;
-  end;
   (* Any data channel to create? *)
-  begin match t.webrtc.data_channel, data with
-  | Some _, _ | None, None | None, Some `Bool false -> ()
-  | None, Some `Bool true ->
-     let dc = Data_channel.(create (make_default_init ()) pc) in
-     t.webrtc <- { t.webrtc with data_channel = Some dc };
-     Data_channel.init t dc
-  | None, Some `Init init ->
-     let dc = Data_channel.create init pc in
-     t.webrtc <- { t.webrtc with data_channel = Some dc };
-     Data_channel.init t dc
-  end;
+  (match t.webrtc.data_channel, data with
+   | Some _, _ | None, None | None, Some `Bool false -> ()
+   | None, Some `Bool true ->
+      let dc = Data_channel.(create (make_default_init ()) pc) in
+      t.webrtc <- { t.webrtc with data_channel = Some dc };
+      Data_channel.init t dc
+   | None, Some `Init init ->
+      let dc = Data_channel.create init pc in
+      t.webrtc <- { t.webrtc with data_channel = Some dc };
+      Data_channel.init t dc);
   (* If there is a new local stream, let's notify the application *)
-  begin match t.webrtc.local_stream with
-  | None -> ()
-  | Some (stream : mediaStream Js.t) ->
-     Option.iter (fun f -> f stream) t.on_local_stream;
-  end;
+  (match t.webrtc.local_stream, t.on_local_stream with
+   | Some (s : mediaStream Js.t), Some f -> f s
+   | _ -> ());
   (* Create offer/answer now *)
   match jsep with
   | None -> create_offer_ sdp_thread media t
@@ -527,7 +519,6 @@ let prepare_webrtc ?(simulcast = false) ?(trickle = true)
      | _ -> ()
      end;
      t.webrtc <- { t.webrtc with stream_external = true };
-     (* FIXME do we really need it? *)
      let (media : Media.t) =
        Media.{ video = make_video ~send:(`Bool true) ()
              ; audio = make_audio ~send:(`Bool true) () } in
@@ -635,6 +626,20 @@ let handle_remote_jsep (jsep : _RTCSessionDescriptionInit Js.t)
       (t : t) : (unit, string) Lwt_result.t =
   prepare_webrtc_peer jsep t
 
+let send_data_string (text : string)
+      (t : t) : (unit, string) Lwt_result.t =
+  match t.webrtc.data_channel with
+  | None -> Lwt.return_error "Can't send data. RTCDataChannel is not available"
+  | Some (x : _RTCDataChannel Js.t) ->
+     Lwt.return_ok @@ x##send_string (Js.string text)
+
+let send_data_blob (blob : #File.blob Js.t)
+      (t : t) : (unit, string) Lwt_result.t =
+  match t.webrtc.data_channel with
+  | None -> Lwt.return_error "Can't send data. RTCDataChannel is not available"
+  | Some (x : _RTCDataChannel Js.t) ->
+     Lwt.return_ok @@ x##send_blob blob
+
 let send_message ?(message : 'a Js.t option)
       ?(jsep : _RTCSessionDescriptionInit Js.t option)
       (t : t)
@@ -682,6 +687,20 @@ let send_message ?(message : 'a Js.t option)
           Log.ign_info_f "Synchronous transaction successful (%s)" plugin;
           Log.ign_debug ~inspect:d##.data "";
           Ok (Some d##.data))
+
+let get_bitrate (t : t) : (int, string) Lwt_result.t =
+  match t.webrtc.pc with
+  | None -> Lwt.return_error "get_bitrate: invalid PeerConnection"
+  | Some pc ->
+     (* Start getting bitrate, if getStats is supported *)
+     if not @@ Js.Optdef.test (Js.Unsafe.coerce pc)##.getStats
+     then (
+       let s = "Getting the video bitrate is unsupported by this browser" in
+       Log.ign_warning s;
+       Lwt.return_error s)
+     else (
+       Lwt.return_error ""
+     )
 
 let hangup ?(request = true) (t : t) : unit =
   Log.ign_info "Cleaning WebRTC stuff";
