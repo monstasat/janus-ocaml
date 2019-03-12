@@ -332,6 +332,15 @@ let attach_plugin ?(opaque_id : string option)
             | Some f -> Some (fun x -> f (Js.Unsafe.coerce x)) in
           let rm_from_session = fun (id : int) ->
             t.plugins := List.remove_assoc id !(t.plugins) in
+          let (volume : Plugin.volume) =
+            { value = None
+            ; timer = None
+            } in
+          let (bitrate : Plugin.bitrate_stuff) =
+            { video = { value = None; bytes = None; timestamp = None }
+            ; audio = { value = None; bytes = None; timestamp = None }
+            ; timer = None
+            } in
           let (p : Plugin.t) =
             { id
             ; opaque_id
@@ -348,6 +357,8 @@ let attach_plugin ?(opaque_id : string option)
             ; ice_transport_policy = t.ice_transport_policy
             ; bundle_policy = t.bundle_policy
             ; webrtc = Plugin.Webrtc_stuff.make_empty ()
+            ; bitrate
+            ; volume
             ; detached = false
             ; on_local_stream
             ; on_remote_stream

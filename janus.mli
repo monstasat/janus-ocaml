@@ -132,12 +132,17 @@ module Plugin : sig
 
   val typ : t -> typ
 
+  val send_data_string : string -> t -> (unit, string) Lwt_result.t
+
+  val send_data_blob : #File.blob Js.t -> t -> (unit, string) Lwt_result.t
+
   val send_message :
-    ?message:'a Js.t ->
+    ?message:'a Js.t -> (* FIXME should be string. 'a is bad at toplevel *)
     ?jsep:_RTCSessionDescriptionInit Js.t ->
     t ->
     ('a Js.t option, string) Lwt_result.t
 
+  (* FIXME pass audio_recv & video_recv as args *)
   val create_offer :
     ?simulcast:bool ->
     ?trickle:bool ->
@@ -146,6 +151,7 @@ module Plugin : sig
     t ->
     (_RTCSessionDescriptionInit Js.t, string) Lwt_result.t
 
+  (* FIXME pass audio_recv & video_recv as args *)
   val create_answer :
     ?simulcast:bool ->
     ?trickle:bool ->
@@ -159,6 +165,15 @@ module Plugin : sig
     _RTCSessionDescriptionInit Js.t ->
     t ->
     (unit, string) Lwt_result.t
+
+  val start_bitrate_loop :
+    ?period:float ->
+    ?video:(int option -> unit) ->
+    ?audio:(int option -> unit) ->
+    t ->
+    (unit, string) Lwt_result.t
+
+  val stop_bitrate_loop : t -> unit
 
   val hangup : ?request:bool -> t -> unit
 

@@ -575,6 +575,45 @@ let prepare_webrtc_peer (jsep : _RTCSessionDescriptionInit Js.t)
         | Failure s -> Lwt.return_error s
         | e -> Lwt.return_error @@ Printexc.to_string e)
 
+let is_inbound_rtp_of_kind (kind : string)
+      (stats : _RTCStats Js.t)
+    : (_RTCInboundRtpStreamStats Js.t option) =
+  let (media_type : string option) =
+    Option.map Js.to_string
+    @@ Js.Optdef.to_option
+    @@ (Js.Unsafe.coerce stats)##.mediaType in
+  let (kind' : string option) =
+    Option.map Js.to_string
+    @@ Js.Optdef.to_option
+    @@ (Js.Unsafe.coerce stats)##.kind in
+  if (Option.equal ~eq:String.equal media_type (Some kind)
+      || Option.equal ~eq:String.equal kind' (Some kind)
+      || stats##.id##toLowerCase##indexOf (Js.string kind) > (-1))
+     && String.equal (Js.to_string stats##._type) "inbound-rtp"
+     && stats##.id##indexOf (Js.string "rtcp") < 0
+  then Some (Js.Unsafe.coerce stats)
+  else None
+
+let get_track_bitrate (stats : _RTCInboundRtpStreamStats Js.t)
+      (br : track_bitrate) =
+  let ts = stats##.timestamp in
+  let bs = stats##.bytesReceived in
+  match br.bytes, br.timestamp with
+  | Some prev_bs, Some prev_ts ->
+     (* in seconds *)
+     let time_passed =
+       (* Apparently the timestamp is in microseconds in Safari *)
+       if Adapter.check_browser ~browser:"safari" ()
+       then (ts -. prev_ts) /. 1_000_000.
+       else (ts -. prev_ts) /. 1_000. in
+     (* Bytes per second *)
+     let (bitrate : int) =
+       (float_of_int (bs - prev_bs)) *. 8. /. time_passed
+       |> (fun x -> Float.floor (x +. 0.5))
+       |> int_of_float in
+     { value = Some bitrate; bytes = Some bs; timestamp = Some ts }
+  | _ -> { br with bytes = Some bs; timestamp = Some ts }
+
 (* API *)
 
 let id (t : t) : int =
@@ -582,32 +621,6 @@ let id (t : t) : int =
 
 let typ (t : t) : typ =
   t.plugin
-
-(* let volume (t : t) : unit =
- *   ignore t
- * 
- * let audio_muted (t : t) : bool =
- *   ignore t;
- *   false
- * 
- * let mute_audio (t : t) : unit =
- *   ignore t
- * 
- * let unmute_audio (t : t) : unit =
- *   ignore t
- * 
- * let video_muted (t : t) : bool =
- *   ignore t;
- *   false
- * 
- * let mute_video (t : t) : unit =
- *   ignore t
- * 
- * let unmute_video (t : t) : unit =
- *   ignore t
- * 
- * let bitrate (t : t) : unit =
- *   ignore t *)
 
 let create_offer ?simulcast ?trickle
       ?(data : Media.data option)
@@ -688,19 +701,57 @@ let send_message ?(message : 'a Js.t option)
           Log.ign_debug ~inspect:d##.data "";
           Ok (Some d##.data))
 
-let get_bitrate (t : t) : (int, string) Lwt_result.t =
-  match t.webrtc.pc with
-  | None -> Lwt.return_error "get_bitrate: invalid PeerConnection"
-  | Some pc ->
-     (* Start getting bitrate, if getStats is supported *)
-     if not @@ Js.Optdef.test (Js.Unsafe.coerce pc)##.getStats
-     then (
-       let s = "Getting the video bitrate is unsupported by this browser" in
-       Log.ign_warning s;
-       Lwt.return_error s)
-     else (
-       Lwt.return_error ""
-     )
+let start_bitrate_loop
+      ?(period = 1000.)
+      ?(video : (int option -> unit) option)
+      ?(audio : (int option -> unit) option)
+      (t : t) =
+  Option.to_result_lazy (fun () -> "Invalid PeerConnection") t.webrtc.pc
+  |> Lwt.return
+  >>= fun (pc : _RTCPeerConnection Js.t) ->
+  if not @@ Js.Optdef.test (Js.Unsafe.coerce pc)##.getStats
+  then (
+    let s = "Getting the video bitrate is unsupported by this browser" in
+    Log.ign_warning s;
+    Lwt.return_error s)
+  else
+    match t.bitrate.timer with
+    | Some _ -> Lwt.return_ok ()
+    | None ->
+       Log.ign_info "Starting bitrate timer (via getStats)";
+       let cb = fun () ->
+         (Lwt.try_bind (fun () -> Promise.to_lwt @@ pc##getStats Js.null)
+            (fun (stats : _RTCStatsReport Js.t) -> Lwt.return_ok stats)
+            (Lwt.return_error % exn_to_string)
+          >|= fun (stats : _RTCStatsReport Js.t) ->
+          let cb = fun (x : _RTCStats Js.t) _ _ ->
+            (* XXX Should we send [false] when no stats found? *)
+            begin match video, is_inbound_rtp_of_kind "video" x with
+            | None, _ | _, None -> ()
+            | Some f, Some x ->
+               let br = get_track_bitrate x t.bitrate.video in
+               t.bitrate <- { t.bitrate with video = br };
+               f br.value
+            end;
+            begin match audio, is_inbound_rtp_of_kind "audio" x with
+            | None, _ | _, None -> ()
+            | Some f, Some x ->
+               let br = get_track_bitrate x t.bitrate.audio in
+               t.bitrate <- { t.bitrate with audio = br };
+               f br.value
+            end in
+          stats##forEach (Js.wrap_callback cb))
+         |> Lwt.ignore_result in
+       let timer = Dom_html.window##setInterval (Js.wrap_callback cb) period in
+       t.bitrate <- { t.bitrate with timer = Some timer };
+       Lwt.return_ok ()
+
+let stop_bitrate_loop (t : t) =
+  match t.bitrate.timer with
+  | None -> ()
+  | Some tmr ->
+     Dom_html.window##clearInterval tmr;
+     t.bitrate <- { t.bitrate with timer = None }
 
 let hangup ?(request = true) (t : t) : unit =
   Log.ign_info "Cleaning WebRTC stuff";

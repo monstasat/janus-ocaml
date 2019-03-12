@@ -22,6 +22,16 @@ module List = struct
     match x with
     | None -> l
     | Some x -> x :: l
+
+  let find_map (f : 'a -> 'b option) (l : 'a list) : 'b option =
+    let rec aux = function
+      | [] -> None
+      | hd :: tl ->
+         match f hd with
+         | None -> aux tl
+         | Some _ as res -> res in
+    aux l
+
 end
 
 module Result = struct

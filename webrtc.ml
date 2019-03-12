@@ -566,6 +566,94 @@ class type _RTCPeerConnection =
 
     end
 
+  and _RTCRtpStreamStats =
+    object
+      inherit _RTCStats
+
+      (** The 32-bit unsigned integer value used to identify the source of the
+          stream of RTP packets that this stats object concerns. *)
+      method ssrc : int Js.prop
+
+      (** Either "audio" or "video". This must match the media type part of the
+          information in the corresponding codec member of RTCCodecStats, and
+          must match the "kind" attribute of the related MediaStreamTrack. *)
+      method kind : Js.js_string Js.t Js.prop
+
+      (** It is a unique identifier that is associated to the object that was
+          inspected to produce the RTCTransportStats associated with this RTP
+          stream. *)
+      method transportId : Js.js_string Js.t Js.prop
+
+      (** It is a unique identifier that is associated to the object that was
+          inspected to produce the RTCCodecStats associated with this RTP
+          stream. *)
+      method codecId : Js.js_string Js.t Js.prop
+
+      (** Count the total number of Full Intra Request (FIR) packets received
+          by the sender. This metric is only valid for video and is sent by
+          receiver. *)
+      method firCount : int Js.prop
+
+      (** Count the total number of Picture Loss Indication (PLI) packets
+          received by the sender. This metric is only valid for video and
+          is sent by receiver. *)
+      method pliCount : int Js.optdef_prop
+
+      (** Count the total number of Negative ACKnowledgement (NACK) packets
+          received by the sender and is sent by receiver. *)
+      method nackCount : int Js.prop
+
+      (** Count the total number of Slice Loss Indication (SLI) packets
+          received by the sender. This metric is only valid for video and
+          is sent by receiver. *)
+      method sliCount : int Js.optdef_prop
+
+      (** The sum of the QP values of frames passed. The count of frames is in
+          framesDecoded for inbound stream stats, and in framesEncoded for
+          outbound stream stats.
+          The definition of QP value depends on the codec; for VP8, the QP value
+          is the value carried in the frame header as the syntax element
+          "y_ac_qi", and defined in [RFC6386] section 19.2. Its range is 0..127.
+          Note that the QP value is only an indication of quantizer values used;
+          many formats have ways to vary the quantizer value within the frame.
+          Only valid for video. *)
+      method qpSum : int Js.optdef_prop
+
+    end
+
+  and _RTCReceivedRtpStreamStats =
+    object
+      inherit _RTCRtpStreamStats
+
+      (** Total number of RTP packets received for this SSRC. *)
+      method packetsReceived : int Js.prop
+
+      (** Total number of RTP packets lost for this SSRC. *)
+      method packetsLost : int Js.prop
+
+      (* XXX not present during tests *)
+      (** Packet Jitter measured in seconds for this SSRC. *)
+      method jitter : float Js.prop
+
+    end
+
+  and _RTCInboundRtpStreamStats =
+    object
+      inherit _RTCReceivedRtpStreamStats
+
+      (** The identifier of the stats object representing the receiving track. *)
+      method trackId : Js.js_string Js.t Js.prop
+
+      (** Only valid for video. It represents the total number of frames
+          correctly decoded for this SSRC, i.e., frames that would be
+          displayed if no frames are dropped. *)
+      method framesDecoded : int Js.optdef_prop
+
+      (** Total number of bytes received for this SSRC. *)
+      method bytesReceived : int Js.prop
+
+    end
+
   and _RTCOfferAnswerOptions =
     object
 

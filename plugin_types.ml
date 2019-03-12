@@ -88,21 +88,23 @@ type slow_link =
   ; uplink : bool
   }
 
+type volume =
+  { value : unit option
+  ; timer : unit option
+  }
+
+type bitrate_stuff =
+  { audio : track_bitrate
+  ; video : track_bitrate
+  ; timer : Dom_html.interval_id option
+  }
+and track_bitrate =
+  { value : int option
+  ; bytes : int option
+  ; timestamp : float option
+  }
+
 module Webrtc_stuff = struct
-
-  type volume =
-    { value : unit option
-    ; timer : unit option
-    }
-
-  type bitrate =
-    { value : unit option
-    ; bsnow : unit option
-    ; bsbefore : unit option
-    ; tsnow : unit option
-    ; tsbefore : unit option
-    ; timer : unit option
-    }
 
   type t =
     { started : bool
@@ -117,8 +119,6 @@ module Webrtc_stuff = struct
     ; dtmf_sender : unit option
     ; trickle : bool
     ; ice_done : bool
-    ; volume : volume
-    ; bitrate : bitrate
     }
 
   let make_empty () : t =
@@ -134,18 +134,6 @@ module Webrtc_stuff = struct
     ; dtmf_sender = None
     ; trickle = true
     ; ice_done = false
-    ; volume =
-        { value = None
-        ; timer = None
-        }
-    ; bitrate =
-        { value = None
-        ; bsnow = None
-        ; bsbefore = None
-        ; tsnow = None
-        ; tsbefore = None
-        ; timer = None
-        }
     }
 
 end
@@ -166,6 +154,8 @@ type t =
   ; ice_transport_policy : ice_transport_policy option
   ; bundle_policy : bundle_policy option
   ; mutable webrtc : Webrtc_stuff.t
+  ; mutable bitrate : bitrate_stuff
+  ; mutable volume : volume
   ; mutable detached : bool
   (* Callbacks *)
   ; on_local_stream : (mediaStream Js.t -> unit) option
