@@ -11,7 +11,7 @@ let get_screen_media ?(use_audio = false)
   Log.ign_info "Adding media constraint (screen capture)";
   Log.ign_debug ~inspect:constraints "";
   let fin res =
-    Option.iter (fun f -> f false) t.on_consent_dialog;
+    Option.iter (fun f -> f false t) t.on_consent_dialog;
     Lwt_result.lift res
     |> Lwt_result.map_err exn_to_string in
   let (media_devices : mediaDevices Js.t) =
@@ -56,7 +56,7 @@ let handle_screenshare ~(keep_audio : bool)
     Lwt.try_bind (fun () ->
         Promise.to_lwt @@ media_devices##getDisplayMedia constraints)
       (fun (stream : mediaStream Js.t) ->
-        Option.iter (fun f -> f false) t.on_consent_dialog;
+        Option.iter (fun f -> f false t) t.on_consent_dialog;
         if Media.is_track_send_enabled media.audio && not keep_audio
         then (
           let (c : mediaStreamConstraints Js.t) = Js.Unsafe.obj [||] in
@@ -72,7 +72,7 @@ let handle_screenshare ~(keep_audio : bool)
             (fun exn -> Lwt.return_error @@ exn_to_string exn))
         else Lwt.return_ok stream)
       (fun exn ->
-        Option.iter (fun f -> f false) t.on_consent_dialog;
+        Option.iter (fun f -> f false t) t.on_consent_dialog;
         Lwt.return_error @@ exn_to_string exn))
   else (
     (* We're going to try and use the extension for Chrome 34+,
@@ -146,10 +146,9 @@ let handle_screenshare ~(keep_audio : bool)
       Lwt.return_ok stream)
     else if check_browser ~browser:"firefox" ()
     then (
-      Option.iter (fun f -> f false) t.on_consent_dialog;
+      Option.iter (fun f -> f false t) t.on_consent_dialog;
       Lwt.return_error "Your version of Firefox does not support screen \
-                        sharing, please install Firefox 33 or later"
-    )
+                        sharing, please install Firefox 33 or later")
     else
       Lwt.return_error "Nor chrome, nor Firefox, \
                         screen sharing is not supported")
@@ -200,14 +199,14 @@ let handle_media ~(keep_audio : bool) ~(keep_video : bool)
             Js.Unsafe.obj [||] in
           let audio =
             if audio_exists && not keep_audio
-            then begin match media.audio.send with
+            then begin match media.audio.source with
                  | `Constraints x -> wrap_constraints x
                  | `Bool x -> wrap_bool x
                  end
             else wrap_bool false in
           let video =
             if video_exists && not keep_video
-            then begin match media.video.send with
+            then begin match media.video.source with
                  | `Constraints x -> wrap_constraints x
                  | `Bool x -> wrap_bool x
                  | `Resolution x ->
@@ -224,14 +223,14 @@ let handle_media ~(keep_audio : bool) ~(keep_video : bool)
             (Lwt.return_error % exn_to_string)))
       (Lwt.return_error % exn_to_string) in
   thread
-  >|= (fun x -> Option.iter (fun f -> f false) t.on_consent_dialog; x)
+  >|= (fun x -> Option.iter (fun f -> f false t) t.on_consent_dialog; x)
 
 let get_user_media ?jsep ~(simulcast : bool)
       ~(keep_audio : bool)
       ~(keep_video : bool)
       (media : Media.t) (t : t) =
-  Option.iter (fun f -> f true) t.on_consent_dialog;
-  match media.video.send with
+  Option.iter (fun f -> f true t) t.on_consent_dialog;
+  match media.video.source with
   | (`Screen fr as src) | (`Window fr as src) ->
      let fr = match fr with None -> 3 | Some x -> x in
      let source = match src with
@@ -243,13 +242,13 @@ let get_user_media ?jsep ~(simulcast : bool)
      let media =
        if simulcast && Option.is_none jsep
        then (
-         let send = `Resolution `HD in
-         let video = { media.video with send } in
+         let source = `Resolution `HD in
+         let video = { media.video with source } in
          Media.{ media with video })
        else media in
      handle_media ~keep_audio ~keep_video media t
   | `Bool true ->
-     let send = `Resolution `SD in
-     let video = { media.video with send } in
+     let source = `Resolution `SD in
+     let video = { media.video with source } in
      let media = { media with video } in
      handle_media ~keep_audio ~keep_video media t

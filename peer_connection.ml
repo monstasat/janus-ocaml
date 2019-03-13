@@ -71,7 +71,7 @@ let on_ice_conn_state_change (t : t)
      let (state : ice_connection_state) =
        ice_connection_state_of_string
        @@ Js.to_string pc##.iceConnectionState in
-     Option.iter (fun f -> f state) t.on_ice_state
+     Option.iter (fun f -> f state t) t.on_ice_state
   end;
   Js._true
 
@@ -119,7 +119,7 @@ let on_track (t : t) (e : _RTCTrackEvent Js.t) : bool Js.t =
   | [||] -> Js._true
   | arr ->
      let (stream : mediaStream Js.t) = arr.(0) in
-     Option.iter (fun f -> f stream) t.on_remote_stream;
+     Option.iter (fun f -> f stream t) t.on_remote_stream;
      if Js.Optdef.test (Js.Unsafe.coerce e)##.track
         && Js.Optdef.test (Js.Unsafe.coerce e)##.track##.onended
      then (
@@ -130,7 +130,7 @@ let on_track (t : t) (e : _RTCTrackEvent Js.t) : bool Js.t =
          | None, _ | _, None -> Js._true
          | Some s, Some target ->
             s##removeTrack target;
-            Option.iter (fun f -> f s) t.on_remote_stream;
+            Option.iter (fun f -> f s t) t.on_remote_stream;
             Js._true in
        e##.track##.onended := Dom.handler onended);
      Js._true

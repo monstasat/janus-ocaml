@@ -41,19 +41,16 @@ let find_transceivers (x : _RTCRtpTransceiver Js.t Js.js_array Js.t) =
       atr, vtr in
     x##reduce_init (Js.wrap_callback cb) (None, None)
 
-let handle_transceiver ~(typ:[`Audio | `Video])
+let handle_transceiver ~(kind : string)
+      ~(recv : bool)
+      ~(send : bool)
+      ~(remove : bool)
       (transceiver : _RTCRtpTransceiver Js.t option)
-      (pc : _RTCPeerConnection Js.t)
-      (track : 'a Media.track) =
-  let kind = match typ with
-    | `Audio -> "audio"
-    | `Video -> "video" in
-  match Media.is_track_send_enabled track,
-        Media.is_track_recv_enabled track,
-        transceiver with
+      (pc : _RTCPeerConnection Js.t) =
+  match send, recv, transceiver with
   | false, false, Some (tr : _RTCRtpTransceiver Js.t) ->
      (* Track disabled: have we removed it? *)
-     if Media.should_remove_track track then (
+     if remove then (
        tr##.direction := Js.string "inactive";
        Log.ign_info_f ~inspect:tr "Setting %s transceiver to inactive:" kind)
   | true, true, Some (tr : _RTCRtpTransceiver Js.t) ->
@@ -123,12 +120,17 @@ let handle_chrome_simulcast (sdp : _RTCSessionDescriptionInit Js.t) =
   then Log.ign_warning "simulcast=true, but this is not Chrome \
                         nor Firefox, ignoring"
 
-let is_simulcast_needed ?(simulcast = false) (media : Media.t) : bool =
-  simulcast && Media.is_track_send_enabled media.video
+let is_simulcast_needed ?(simulcast = false) (source : Media.source) : bool =
+  let video_send = match source with
+    | `Stream _ -> true
+    | `Media { video; _ } -> Media.is_track_send_enabled video in
+  simulcast && video_send
 
 let create_offer_ ?(ice_restart = false) ?simulcast
+      ~(audio_recv : bool)
+      ~(video_recv : bool)
       (sdp_thread : _RTCSessionDescriptionInit Js.t Lwt.t)
-      (media : Media.t)
+      (source : Media.source)
       (t : t) : (_RTCSessionDescriptionInit Js.t, string) Lwt_result.t =
   t.webrtc.pc
   |> Option.to_result_lazy (fun () ->
@@ -144,17 +146,23 @@ let create_offer_ ?(ice_restart = false) ?simulcast
     let audio_transceiver, video_transceiver =
       find_transceivers pc##getTransceivers in
     (* Handle audio (and related changes, if any) *)
-    handle_transceiver ~typ:`Audio audio_transceiver pc media.audio;
+    handle_transceiver ~kind:"audio"
+      ~recv:audio_recv
+      ~send:true (* FIXME *)
+      ~remove:false (* FIXME *)
+      audio_transceiver pc;
     (* Handle video (and related changes, if any) *)
-    handle_transceiver ~typ:`Video video_transceiver pc media.video)
+    handle_transceiver ~kind:"video"
+      ~recv:video_recv
+      ~send:true (* FIXME *)
+      ~remove:false (* FIXME *)
+      video_transceiver pc)
   else (
-    let audio_recv = Media.is_track_recv_enabled media.audio in
-    let video_recv = Media.is_track_recv_enabled media.video in
     media_constraints##.offerToReceiveAudio := Js.bool audio_recv;
     media_constraints##.offerToReceiveVideo := Js.bool video_recv);
   if ice_restart then media_constraints##.iceRestart := Js._true;
   Log.ign_debug ~inspect:media_constraints "";
-  let need_simulcast = is_simulcast_needed ?simulcast media in
+  let need_simulcast = is_simulcast_needed ?simulcast source in
   if need_simulcast then handle_firefox_simulcast pc;
   Lwt.try_bind (fun () ->
       Promise.to_lwt @@ pc##createOffer media_constraints)
@@ -182,8 +190,10 @@ let create_offer_ ?(ice_restart = false) ?simulcast
     (fun e -> Lwt.return_error @@ exn_to_string e)
 
 let create_answer_ ?simulcast
+      ~(audio_recv : bool)
+      ~(video_recv : bool)
       (sdp_thread : _RTCSessionDescriptionInit Js.t Lwt.t)
-      (media : Media.t)
+      (source : Media.source)
       (t : t) : (_RTCSessionDescriptionInit Js.t, string) Lwt_result.t =
   t.webrtc.pc
   |> Option.to_result_lazy (fun () ->
@@ -200,25 +210,30 @@ let create_answer_ ?simulcast
     let audio_transceiver, video_transceiver =
       find_transceivers pc##getTransceivers in
     (* Handle audio (and related changes, if any) *)
-    handle_transceiver ~typ:`Audio audio_transceiver pc media.audio;
+    handle_transceiver ~kind:"audio"
+      ~recv:audio_recv
+      ~send:true (* FIXME *)
+      ~remove:false (* FIXME *)
+      audio_transceiver pc;
     (* Handle video (and related changes, if any) *)
-    handle_transceiver ~typ:`Video video_transceiver pc media.video)
+    handle_transceiver ~kind:"video"
+      ~recv:video_recv
+      ~send:true (* FIXME *)
+      ~remove:false (* FIXME *)
+      video_transceiver pc)
   else if check_browser ~browser:"firefox" ()
           || check_browser ~browser:"edge" ()
   then (
-    let a = Media.is_track_recv_enabled media.audio in
-    let v = Media.is_track_recv_enabled media.video in
-    (Js.Unsafe.coerce media_constraints)##.offerToReceiveAudio := Js.bool a;
-    (Js.Unsafe.coerce media_constraints)##.offerToReceiveVideo := Js.bool v)
+    let c = Js.Unsafe.coerce media_constraints in
+    c##.offerToReceiveAudio := Js.bool audio_recv;
+    c##.offerToReceiveVideo := Js.bool video_recv)
   else (
-    let a = Media.is_track_recv_enabled media.audio in
-    let v = Media.is_track_recv_enabled media.video in
     let mandatory = Js.Unsafe.(
-        obj [| "OfferToReceiveAudio", inject @@ Js.bool a
-             ; "OfferToReceiveVideo", inject @@ Js.bool v |]) in
+        obj [| "OfferToReceiveAudio", inject @@ Js.bool audio_recv
+             ; "OfferToReceiveVideo", inject @@ Js.bool video_recv |]) in
     (Js.Unsafe.coerce media_constraints)##.mandatory := mandatory);
   Log.ign_debug ~inspect:media_constraints "";
-  let need_simulcast = is_simulcast_needed ?simulcast media in
+  let need_simulcast = is_simulcast_needed ?simulcast source in
   if need_simulcast then handle_firefox_simulcast pc;
   Lwt.try_bind (fun () ->
       Promise.to_lwt @@ pc##createAnswer media_constraints)
@@ -323,7 +338,9 @@ let add_tracks (pc : _RTCPeerConnection Js.t) (stream : mediaStream Js.t) =
 let streams_done ?(jsep : _RTCSessionDescriptionInit Js.t option)
       ?(data : Media.data option)
       ?(stream : mediaStream Js.t option)
-      (media : Media.t)
+      ~(audio_recv : bool)
+      ~(video_recv : bool)
+      (source : Media.source)
       (t : t) =
   let sdp_thread, w = Lwt.task () in
   Log.ign_debug ~inspect:(Js.Opt.option stream) "streams done:";
@@ -333,8 +350,8 @@ let streams_done ?(jsep : _RTCSessionDescriptionInit Js.t option)
     stream;
   (* We're now capturing the new stream: check if we're updating or it's a new thing *)
   let (pc : _RTCPeerConnection Js.t) =
-    match t.webrtc.local_stream, t.webrtc.pc, t.webrtc.stream_external with
-    | Some my_stream, Some pc, false ->
+    match t.webrtc.local_stream, t.webrtc.pc, source with
+    | Some my_stream, Some pc, `Media media ->
        (* We only need to update the existing stream *)
        let (audio_track : mediaStreamTrack Js.t option) =
          match stream with
@@ -386,11 +403,11 @@ let streams_done ?(jsep : _RTCSessionDescriptionInit Js.t option)
       Data_channel.init t dc);
   (* If there is a new local stream, let's notify the application *)
   (match t.webrtc.local_stream, t.on_local_stream with
-   | Some (s : mediaStream Js.t), Some f -> f s
+   | Some (s : mediaStream Js.t), Some f -> f s t
    | _ -> ());
   (* Create offer/answer now *)
   match jsep with
-  | None -> create_offer_ sdp_thread media t
+  | None -> create_offer_ ~audio_recv ~video_recv sdp_thread source t
   | Some (jsep : _RTCSessionDescriptionInit Js.t) ->
      Lwt.try_bind
        (fun () -> Promise.to_lwt @@ pc##setRemoteDescription jsep)
@@ -399,7 +416,7 @@ let streams_done ?(jsep : _RTCSessionDescriptionInit Js.t option)
          t.webrtc <- { t.webrtc with remote_sdp = Some jsep };
          (* Any trickle candidate we cached? *)
          handle_cached_candidates t.webrtc.candidates pc;
-         create_answer_ sdp_thread media t)
+         create_answer_ ~audio_recv ~video_recv sdp_thread source t)
        (Lwt.return_error % exn_to_string)
 
 let remove_track (typ : [`Audio | `Video]) (stream : mediaStream Js.t) =
@@ -489,6 +506,8 @@ let update_track ~(typ:[`Audio | `Video])
 let prepare_webrtc ?(simulcast = false) ?(trickle = true)
       ?(data : Media.data option)
       ?(jsep : _RTCSessionDescriptionInit Js.t option)
+      ~(audio_recv : bool)
+      ~(video_recv : bool)
       (source : Media.source)
       (t : t) =
   t.webrtc <- { t.webrtc with trickle };
@@ -519,11 +538,8 @@ let prepare_webrtc ?(simulcast = false) ?(trickle = true)
      | _ -> ()
      end;
      t.webrtc <- { t.webrtc with stream_external = true };
-     let (media : Media.t) =
-       Media.{ video = make_video ~send:(`Bool true) ()
-             ; audio = make_audio ~send:(`Bool true) () } in
-     streams_done ?jsep ?data ~stream media t
-  | `Create ({ audio; video; _ } as media : Media.t) ->
+     streams_done ?jsep ?data ~stream ~audio_recv ~video_recv source t
+  | `Media ({ audio; video; _ } as media : Media.t) ->
      Result.Infix.(
       let local_stream = t.webrtc.local_stream in
       (* Check if there are changes on audio*)
@@ -538,7 +554,8 @@ let prepare_webrtc ?(simulcast = false) ?(trickle = true)
      >>= fun (keep_audio, keep_video, media) ->
      (* If we're keeping all tracks, let's skip the getUserMedia part *)
      if keep_audio && keep_video
-     then streams_done ?jsep ?data ?stream:t.webrtc.local_stream media t
+     then streams_done ?jsep ?data ?stream:t.webrtc.local_stream
+            ~audio_recv ~video_recv source t
      else (
        (* Check if we need to remove/replace one of the tracks *)
        remove_or_replace_tracks media t.webrtc.local_stream t.webrtc.pc;
@@ -547,10 +564,11 @@ let prepare_webrtc ?(simulcast = false) ?(trickle = true)
          User_media.get_user_media ?jsep
            ~keep_audio ~keep_video
            ~simulcast media t
-         >>= fun stream -> streams_done ?jsep ?data ~stream media t
+         >>= fun stream ->
+         streams_done ?jsep ?data ~stream ~audio_recv ~video_recv source t
        else
          (* No need to do a getUserMedia, create offer/answer right away *)
-         streams_done ?jsep ?data media t)
+         streams_done ?jsep ?data ~audio_recv ~video_recv source t)
 
 let prepare_webrtc_peer (jsep : _RTCSessionDescriptionInit Js.t)
       (t : t) : (unit, string) Lwt_result.t =
@@ -575,45 +593,6 @@ let prepare_webrtc_peer (jsep : _RTCSessionDescriptionInit Js.t)
         | Failure s -> Lwt.return_error s
         | e -> Lwt.return_error @@ Printexc.to_string e)
 
-let is_inbound_rtp_of_kind (kind : string)
-      (stats : _RTCStats Js.t)
-    : (_RTCInboundRtpStreamStats Js.t option) =
-  let (media_type : string option) =
-    Option.map Js.to_string
-    @@ Js.Optdef.to_option
-    @@ (Js.Unsafe.coerce stats)##.mediaType in
-  let (kind' : string option) =
-    Option.map Js.to_string
-    @@ Js.Optdef.to_option
-    @@ (Js.Unsafe.coerce stats)##.kind in
-  if (Option.equal ~eq:String.equal media_type (Some kind)
-      || Option.equal ~eq:String.equal kind' (Some kind)
-      || stats##.id##toLowerCase##indexOf (Js.string kind) > (-1))
-     && String.equal (Js.to_string stats##._type) "inbound-rtp"
-     && stats##.id##indexOf (Js.string "rtcp") < 0
-  then Some (Js.Unsafe.coerce stats)
-  else None
-
-let get_track_bitrate (stats : _RTCInboundRtpStreamStats Js.t)
-      (br : track_bitrate) =
-  let ts = stats##.timestamp in
-  let bs = stats##.bytesReceived in
-  match br.bytes, br.timestamp with
-  | Some prev_bs, Some prev_ts ->
-     (* in seconds *)
-     let time_passed =
-       (* Apparently the timestamp is in microseconds in Safari *)
-       if Adapter.check_browser ~browser:"safari" ()
-       then (ts -. prev_ts) /. 1_000_000.
-       else (ts -. prev_ts) /. 1_000. in
-     (* Bytes per second *)
-     let (bitrate : int) =
-       (float_of_int (bs - prev_bs)) *. 8. /. time_passed
-       |> (fun x -> Float.floor (x +. 0.5))
-       |> int_of_float in
-     { value = Some bitrate; bytes = Some bs; timestamp = Some ts }
-  | _ -> { br with bytes = Some bs; timestamp = Some ts }
-
 (* API *)
 
 let id (t : t) : int =
@@ -624,34 +603,179 @@ let typ (t : t) : typ =
 
 let create_offer ?simulcast ?trickle
       ?(data : Media.data option)
+      ?(audio_recv = true)
+      ?(video_recv = true)
       (source : Media.source)
       (t : t) =
-  prepare_webrtc ?simulcast ?trickle ?data source t
+  prepare_webrtc ?simulcast ?trickle ?data
+    ~audio_recv ~video_recv source t
 
 let create_answer ?simulcast ?trickle
       ?(data : Media.data option)
+      ?(audio_recv = true)
+      ?(video_recv = true)
       ~(jsep : _RTCSessionDescriptionInit Js.t)
       (source : Media.source)
       (t : t) =
-  prepare_webrtc ?simulcast ?trickle ?data ~jsep source t
+  prepare_webrtc ?simulcast ?trickle ?data ~jsep
+    ~audio_recv ~video_recv source t
 
 let handle_remote_jsep (jsep : _RTCSessionDescriptionInit Js.t)
       (t : t) : (unit, string) Lwt_result.t =
   prepare_webrtc_peer jsep t
 
-let send_data_string (text : string)
-      (t : t) : (unit, string) Lwt_result.t =
-  match t.webrtc.data_channel with
-  | None -> Lwt.return_error "Can't send data. RTCDataChannel is not available"
-  | Some (x : _RTCDataChannel Js.t) ->
-     Lwt.return_ok @@ x##send_string (Js.string text)
+module Data_channel = struct
 
-let send_data_blob (blob : #File.blob Js.t)
-      (t : t) : (unit, string) Lwt_result.t =
-  match t.webrtc.data_channel with
-  | None -> Lwt.return_error "Can't send data. RTCDataChannel is not available"
-  | Some (x : _RTCDataChannel Js.t) ->
-     Lwt.return_ok @@ x##send_blob blob
+  let check_dc (f : _RTCDataChannel Js.t -> unit) (t : t) =
+    match t.webrtc.data_channel with
+    | None -> Lwt.return_error "Can't send data. RTCDataChannel is not available"
+    | Some (x : _RTCDataChannel Js.t) ->
+       try Lwt.return_ok @@ f x
+       with exn -> Lwt.return_error @@ exn_to_string exn
+
+  let get_ready_state (t : t) : string option =
+    match t.webrtc.data_channel with
+    | None -> None
+    | Some (x : _RTCDataChannel Js.t) ->
+       Some (Js.to_string x##.readyState)
+
+  let send_string (text : string)
+        (t : t) : (unit, string) Lwt_result.t =
+    check_dc (fun x ->
+        Log.ign_warning ~inspect:x "DC";
+        x##send_string (Js.string text)) t
+
+  let send_js_string (text : Js.js_string Js.t)
+        (t : t) : (unit, string) Lwt_result.t =
+    check_dc (fun x -> x##send_string text) t
+
+  let send_blob (blob : #File.blob Js.t)
+        (t : t) : (unit, string) Lwt_result.t =
+    check_dc (fun x -> x##send_blob blob) t
+
+  let send_array_buffer (ab : #Typed_array.arrayBuffer Js.t)
+        (t : t) : (unit, string) Lwt_result.t =
+    check_dc (fun x -> x##send_arrayBuffer ab) t
+
+  let send_array_buffer_view (abv : #Typed_array.arrayBufferView Js.t)
+        (t : t) : (unit, string) Lwt_result.t =
+    check_dc (fun x -> x##send_arrayBufferView abv) t
+
+end
+
+module Stats = struct
+
+  type bitrate =
+    { audio : int option
+    ; video : int option
+    }
+
+  let find_rtp_stats (kind : string)
+        (stats : _RTCStats Js.t)
+      : (_RTCInboundRtpStreamStats Js.t option) =
+    let (media_type : string option) =
+      Option.map Js.to_string
+      @@ Js.Optdef.to_option
+      @@ (Js.Unsafe.coerce stats)##.mediaType in
+    let (kind' : string option) =
+      Option.map Js.to_string
+      @@ Js.Optdef.to_option
+      @@ (Js.Unsafe.coerce stats)##.kind in
+    if (Option.equal ~eq:String.equal media_type (Some kind)
+        || Option.equal ~eq:String.equal kind' (Some kind)
+        || stats##.id##toLowerCase##indexOf (Js.string kind) > (-1))
+       && String.equal (Js.to_string stats##._type) "inbound-rtp"
+       && stats##.id##indexOf (Js.string "rtcp") < 0
+    then Some (Js.Unsafe.coerce stats)
+    else None
+
+  let get_track_bitrate (stats : _RTCInboundRtpStreamStats Js.t)
+        (br : track_bitrate) =
+    let ts = stats##.timestamp in
+    let bs = stats##.bytesReceived in
+    match br.bytes, br.timestamp with
+    | Some prev_bs, Some prev_ts ->
+       (* in seconds *)
+       let time_passed =
+         (* Apparently the timestamp is in microseconds in Safari *)
+         if Adapter.check_browser ~browser:"safari" ()
+         then (ts -. prev_ts) /. 1_000_000.
+         else (ts -. prev_ts) /. 1_000. in
+       (* Bytes per second *)
+       let (bitrate : int) =
+         (float_of_int (bs - prev_bs)) *. 8. /. time_passed
+         |> (fun x -> Float.floor (x +. 0.5))
+         |> int_of_float in
+       { value = Some bitrate; bytes = Some bs; timestamp = Some ts }
+    | _ -> { br with bytes = Some bs; timestamp = Some ts }
+
+  let start_bitrate_loop ?(period = 1000.)
+        (f : bitrate -> unit)
+        (t : t) =
+    Option.to_result_lazy (fun () -> "Invalid PeerConnection") t.webrtc.pc
+    |> Lwt.return
+    >>= fun (pc : _RTCPeerConnection Js.t) ->
+    if not @@ Js.Optdef.test (Js.Unsafe.coerce pc)##.getStats
+    then (
+      let s = "Getting the video bitrate is unsupported by this browser" in
+      Log.ign_warning s;
+      Lwt.return_error s)
+    else
+      match t.bitrate.timer with
+      | Some _ -> Lwt.return_ok ()
+      | None ->
+         Log.ign_info "Starting bitrate timer (via getStats)";
+         let cb = fun () ->
+           (Lwt.try_bind (fun () -> Promise.to_lwt @@ pc##getStats Js.null)
+              (fun (stats : _RTCStatsReport Js.t) -> Lwt.return_ok stats)
+              (Lwt.return_error % exn_to_string)
+            >|= fun (stats : _RTCStatsReport Js.t) ->
+            let rec aux (iter : _RTCStats Js.t iterator Js.t) ((a, v) as acc) =
+              let next = iter##next in
+              match Js.to_bool next##._done, Js.Optdef.to_option next##.value with
+              | true, _ -> acc
+              | false, None -> aux iter acc
+              | false, Some value ->
+                 match a, v with
+                 | (Some _, Some _) as res -> res
+                 | None, (Some _ as v) -> aux iter (find_rtp_stats "audio" value, v)
+                 | (Some _ as a), None -> aux iter (a, find_rtp_stats "video" value)
+                 | None, None ->
+                    aux iter (find_rtp_stats "audio" value,
+                              find_rtp_stats "video" value) in
+            let a, v = aux stats##values (None, None) in
+            let v' = match v with
+              | None ->
+                 let br = { value = None; bytes = None; timestamp = None } in
+                 t.bitrate <- { t.bitrate with video = br };
+                 br.value
+              | Some x ->
+                 let br = get_track_bitrate x t.bitrate.video in
+                 t.bitrate <- { t.bitrate with video = br };
+                 br.value in
+            let a' = match a with
+              | None ->
+                 let br = { value = None; bytes = None; timestamp = None } in
+                 t.bitrate <- { t.bitrate with audio = br };
+                 br.value
+              | Some x ->
+                 let br = get_track_bitrate x t.bitrate.audio in
+                 t.bitrate <- { t.bitrate with audio = br };
+                 br.value in
+            f { audio = a'; video = v' })
+           |> Lwt.ignore_result in
+         let timer = Dom_html.window##setInterval (Js.wrap_callback cb) period in
+         t.bitrate <- { t.bitrate with timer = Some timer };
+         Lwt.return_ok ()
+
+  let stop_bitrate_loop (t : t) =
+    match t.bitrate.timer with
+    | None -> ()
+    | Some tmr ->
+       Dom_html.window##clearInterval tmr;
+       t.bitrate <- { t.bitrate with timer = None }
+
+end
 
 let send_message ?(message : 'a Js.t option)
       ?(jsep : _RTCSessionDescriptionInit Js.t option)
@@ -701,58 +825,6 @@ let send_message ?(message : 'a Js.t option)
           Log.ign_debug ~inspect:d##.data "";
           Ok (Some d##.data))
 
-let start_bitrate_loop
-      ?(period = 1000.)
-      ?(video : (int option -> unit) option)
-      ?(audio : (int option -> unit) option)
-      (t : t) =
-  Option.to_result_lazy (fun () -> "Invalid PeerConnection") t.webrtc.pc
-  |> Lwt.return
-  >>= fun (pc : _RTCPeerConnection Js.t) ->
-  if not @@ Js.Optdef.test (Js.Unsafe.coerce pc)##.getStats
-  then (
-    let s = "Getting the video bitrate is unsupported by this browser" in
-    Log.ign_warning s;
-    Lwt.return_error s)
-  else
-    match t.bitrate.timer with
-    | Some _ -> Lwt.return_ok ()
-    | None ->
-       Log.ign_info "Starting bitrate timer (via getStats)";
-       let cb = fun () ->
-         (Lwt.try_bind (fun () -> Promise.to_lwt @@ pc##getStats Js.null)
-            (fun (stats : _RTCStatsReport Js.t) -> Lwt.return_ok stats)
-            (Lwt.return_error % exn_to_string)
-          >|= fun (stats : _RTCStatsReport Js.t) ->
-          let cb = fun (x : _RTCStats Js.t) _ _ ->
-            (* XXX Should we send [false] when no stats found? *)
-            begin match video, is_inbound_rtp_of_kind "video" x with
-            | None, _ | _, None -> ()
-            | Some f, Some x ->
-               let br = get_track_bitrate x t.bitrate.video in
-               t.bitrate <- { t.bitrate with video = br };
-               f br.value
-            end;
-            begin match audio, is_inbound_rtp_of_kind "audio" x with
-            | None, _ | _, None -> ()
-            | Some f, Some x ->
-               let br = get_track_bitrate x t.bitrate.audio in
-               t.bitrate <- { t.bitrate with audio = br };
-               f br.value
-            end in
-          stats##forEach (Js.wrap_callback cb))
-         |> Lwt.ignore_result in
-       let timer = Dom_html.window##setInterval (Js.wrap_callback cb) period in
-       t.bitrate <- { t.bitrate with timer = Some timer };
-       Lwt.return_ok ()
-
-let stop_bitrate_loop (t : t) =
-  match t.bitrate.timer with
-  | None -> ()
-  | Some tmr ->
-     Dom_html.window##clearInterval tmr;
-     t.bitrate <- { t.bitrate with timer = None }
-
 let hangup ?(request = true) (t : t) : unit =
   Log.ign_info "Cleaning WebRTC stuff";
   if request
@@ -773,7 +845,8 @@ let hangup ?(request = true) (t : t) : unit =
       (Printf.sprintf "%s/%d/%d" t.server t.session_id t.id)
     |> Lwt.ignore_result);
   (* Cleanup stack *)
-  (* TODO clear timers *)
+  Option.iter (fun x -> Dom_html.window##clearInterval x) t.bitrate.timer;
+  t.bitrate <- { t.bitrate with timer = None };
   (* Try a MediaStreamTrack.stop() for each track *)
   begin match t.webrtc.stream_external, t.webrtc.local_stream with
   | false, Some (stream : mediaStream Js.t) ->
@@ -806,7 +879,7 @@ let hangup ?(request = true) (t : t) : unit =
                   ; dtmf_sender = None
     } in
   t.webrtc <- upd;
-  Option.iter (fun f -> f ()) t.on_cleanup
+  Option.iter (fun f -> f t) t.on_cleanup
 
 let detach ?(async = true) (t : t) : (unit, string) Lwt_result.t =
   Log.ign_info_f "Destroying handle %d (async=%b)" t.id async;

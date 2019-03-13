@@ -38,8 +38,7 @@ module Media : sig
   type 'a track =
     { fail_if_not_available : bool
     ; update : upd option
-    ; send : 'a
-    ; recv : bool
+    ; source : 'a
     }
 
   type data =
@@ -54,26 +53,28 @@ module Media : sig
 
   type source =
     [ `Stream of mediaStream Js.t
-    | `Create of t
+    | `Media of t
     ]
 
-  val make_audio : ?fail_if_not_available:bool ->
-                   ?update:upd ->
-                   ?recv:bool ->
-                   ?send:audio ->
-                   unit ->
-                   audio track
-  val make_video : ?fail_if_not_available:bool ->
-                   ?update:upd ->
-                   ?recv:bool ->
-                   ?send:video ->
-                   unit ->
-                   video track
+  val make_audio :
+    ?fail_if_not_available:bool ->
+    ?update:upd ->
+    ?source:audio ->
+    unit ->
+    audio track
 
-  val make : ?audio:audio track ->
-             ?video:video track ->
-             unit ->
-             t
+  val make_video :
+    ?fail_if_not_available:bool ->
+    ?update:upd ->
+    ?source:video ->
+    unit ->
+    video track
+
+  val make :
+    ?audio:audio track ->
+    ?video:video track ->
+    unit ->
+    t
 
 end
 
@@ -126,36 +127,69 @@ module Plugin : sig
     ; uplink : bool
     }
 
+  module Data_channel : sig
+
+    val get_ready_state : t -> string option
+
+    val send_string : string -> t -> (unit, string) Lwt_result.t
+
+    val send_js_string : Js.js_string Js.t -> t -> (unit, string) Lwt_result.t
+
+    val send_blob : #File.blob Js.t -> t -> (unit, string) Lwt_result.t
+
+    val send_array_buffer :
+      #Typed_array.arrayBuffer Js.t ->
+      t -> (unit, string) Lwt_result.t
+
+    val send_array_buffer_view :
+      #Typed_array.arrayBufferView Js.t ->
+      t -> (unit, string) Lwt_result.t
+  end
+
+  module Stats : sig
+
+    type bitrate =
+      { audio : int option
+      ; video : int option
+      }
+
+    val stop_bitrate_loop : t -> unit
+
+    val start_bitrate_loop :
+      ?period:float ->
+      (bitrate -> unit) ->
+      t -> (unit, string) Lwt_result.t
+
+  end
+
   val ice_connection_state_to_string : ice_connection_state -> string
 
   val id : t -> int
 
   val typ : t -> typ
 
-  val send_data_string : string -> t -> (unit, string) Lwt_result.t
-
-  val send_data_blob : #File.blob Js.t -> t -> (unit, string) Lwt_result.t
-
   val send_message :
-    ?message:'a Js.t -> (* FIXME should be string. 'a is bad at toplevel *)
+    ?message:'a Js.t ->
     ?jsep:_RTCSessionDescriptionInit Js.t ->
     t ->
     ('a Js.t option, string) Lwt_result.t
 
-  (* FIXME pass audio_recv & video_recv as args *)
   val create_offer :
     ?simulcast:bool ->
     ?trickle:bool ->
     ?data:Media.data ->
+    ?audio_recv:bool ->
+    ?video_recv:bool ->
     Media.source ->
     t ->
     (_RTCSessionDescriptionInit Js.t, string) Lwt_result.t
 
-  (* FIXME pass audio_recv & video_recv as args *)
   val create_answer :
     ?simulcast:bool ->
     ?trickle:bool ->
     ?data:Media.data ->
+    ?audio_recv:bool ->
+    ?video_recv:bool ->
     jsep:_RTCSessionDescriptionInit Js.t ->
     Media.source ->
     t ->
@@ -165,15 +199,6 @@ module Plugin : sig
     _RTCSessionDescriptionInit Js.t ->
     t ->
     (unit, string) Lwt_result.t
-
-  val start_bitrate_loop :
-    ?period:float ->
-    ?video:(int option -> unit) ->
-    ?audio:(int option -> unit) ->
-    t ->
-    (unit, string) Lwt_result.t
-
-  val stop_bitrate_loop : t -> unit
 
   val hangup : ?request:bool -> t -> unit
 
@@ -213,23 +238,23 @@ module Session : sig
     ?opaque_id:string ->
     ?token:string ->
     ?rtc_constraints:(string * Js.Unsafe.any) array list ->
-    ?on_local_stream:(mediaStream Js.t -> unit) ->
-    ?on_remote_stream:(mediaStream Js.t -> unit) ->
+    ?on_local_stream:(mediaStream Js.t -> Plugin.t -> unit) ->
+    ?on_remote_stream:(mediaStream Js.t -> Plugin.t -> unit) ->
     ?on_message:(?jsep:_RTCSessionDescriptionInit Js.t ->
                  'a Js.t ->
                  Plugin.t ->
                  unit) ->
-    ?on_consent_dialog:(bool -> unit) ->
-    ?on_ice_state:(Plugin.ice_connection_state -> unit) ->
-    ?on_webrtc_state:(Plugin.webrtc_state -> unit) ->
-    ?on_media_state:(Plugin.media_state -> unit) ->
-    ?on_slow_link:(Plugin.slow_link -> unit) ->
-    ?on_data:('a Js.t -> unit) ->
-    ?on_data_open:(unit -> unit) ->
-    ?on_data_close:(unit -> unit) ->
-    ?on_data_error:(_RTCError Js.t -> unit) ->
-    ?on_cleanup:(unit -> unit) ->
-    ?on_detached:(unit -> unit) ->
+    ?on_consent_dialog:(bool -> Plugin.t -> unit) ->
+    ?on_ice_state:(Plugin.ice_connection_state -> Plugin.t -> unit) ->
+    ?on_webrtc_state:(Plugin.webrtc_state -> Plugin.t -> unit) ->
+    ?on_media_state:(Plugin.media_state -> Plugin.t -> unit) ->
+    ?on_slow_link:(Plugin.slow_link -> Plugin.t -> unit) ->
+    ?on_data:('a Js.t -> Plugin.t -> unit) ->
+    ?on_data_open:(Plugin.t -> unit) ->
+    ?on_data_close:(Plugin.t -> unit) ->
+    ?on_data_error:(_RTCError Js.t -> Plugin.t -> unit) ->
+    ?on_cleanup:(Plugin.t -> unit) ->
+    ?on_detached:(Plugin.t -> unit) ->
     typ:Plugin.typ ->
     t ->
     (Plugin.t, string) Lwt_result.t

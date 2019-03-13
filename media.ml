@@ -39,8 +39,7 @@ type audio = send
 type 'a track =
   { fail_if_not_available : bool
   ; update : upd option
-  ; send : 'a
-  ; recv : bool
+  ; source : 'a
   }
 
 type data =
@@ -55,29 +54,25 @@ type t =
 
 type source =
   [ `Stream of mediaStream Js.t
-  | `Create of t
+  | `Media of t
   ]
 
 let make_audio ?(fail_if_not_available = false)
       ?(update : upd option)
-      ?(recv = true)
-      ?(send = `Bool true)
+      ?(source = `Bool true)
       () : audio track =
   { fail_if_not_available
   ; update
-  ; send
-  ; recv
+  ; source
   }
 
 let make_video ?(fail_if_not_available = false)
       ?(update : upd option)
-      ?(recv = true)
-      ?(send = `Bool true)
+      ?(source = `Bool true)
       () : video track =
   { fail_if_not_available
   ; update
-  ; send
-  ; recv
+  ; source
   }
 
 let make ?audio ?video () : t =
@@ -99,17 +94,14 @@ let is_data_enabled (data : data) : bool =
   | _ -> match data with `Bool x -> x | `Init _ -> true
 
 let is_track_send_enabled (track : 'a track) : bool =
-  match track.send with
+  match track.source with
   | `Bool x -> x
   | _ -> true
 
 let is_track_send_required (track : 'a track) : bool =
-  match track.send with
+  match track.source with
   | `Bool false -> false
   | _ -> track.fail_if_not_available
-
-let is_track_recv_enabled (track : 'a track) : bool =
-  track.recv
 
 let should_remove_track (track : 'a track) : bool =
   match track.update with

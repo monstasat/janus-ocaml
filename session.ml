@@ -99,7 +99,7 @@ let handle_event ~(id : int)
       do_when_sender plugins event##.sender (fun (p : Plugin.t) ->
           match p.on_webrtc_state with
           | None -> ()
-          | Some f -> f Up)
+          | Some f -> f Up p)
    | "hangup" ->
       (* A plugin asked the core to hangup a PeerConnection
          on one of our handles *)
@@ -110,7 +110,7 @@ let handle_event ~(id : int)
       do_when_sender plugins event##.sender (fun (p : Plugin.t) ->
           (match p.on_webrtc_state with
            | None -> ()
-           | Some f -> f (Down (Js.to_string event##.reason)));
+           | Some f -> f (Down (Js.to_string event##.reason)) p);
           Plugin.hangup p)
    | "detached" ->
       (* A plugin asked the core to detach one of our handles *)
@@ -120,7 +120,7 @@ let handle_event ~(id : int)
         Js.Unsafe.coerce event in
       do_when_sender ~warn:false plugins event##.sender (fun (p : Plugin.t) ->
           p.detached <- true;
-          Option.iter (fun f -> f ()) p.on_detached;
+          Option.iter (fun f -> f p) p.on_detached;
           Lwt.ignore_result @@ Plugin.detach p)
    | "media" ->
       (* Media started/stopped flowing *)
@@ -135,8 +135,8 @@ let handle_event ~(id : int)
              let typ = event##._type in
              let receiving = Js.to_bool event##.receiving in
              match Js.to_string typ with
-             | "audio" -> f (Audio receiving)
-             | "video" -> f (Video receiving)
+             | "audio" -> f (Audio receiving) p
+             | "video" -> f (Video receiving) p
              | s -> Log.ign_warning_f "Got unknown media type: %s" s)
    | "slowlink" ->
       (* Trouble uplink or downlink *)
@@ -148,7 +148,8 @@ let handle_event ~(id : int)
           match p.on_slow_link with
           | None -> ()
           | Some f -> f { nacks = event##.nacks
-                        ; uplink = Js.to_bool event##.uplink })
+                        ; uplink = Js.to_bool event##.uplink }
+                        p)
    | "error" ->
       (* Oops, something wrong happened *)
       begin match Js.Optdef.to_option event##.error with
@@ -293,7 +294,7 @@ let attach_plugin ?(opaque_id : string option)
       ?on_data_close
       ?on_data_error
       ?on_cleanup
-      ?(on_detached : (unit -> unit) option)
+      ?(on_detached : (Plugin.t -> unit) option)
       ~(typ : Plugin.typ)
       (t : t) : (Plugin.t, string) Lwt_result.t =
   is_connected_lwt (fun () -> connected t)

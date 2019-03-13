@@ -158,22 +158,22 @@ type t =
   ; mutable volume : volume
   ; mutable detached : bool
   (* Callbacks *)
-  ; on_local_stream : (mediaStream Js.t -> unit) option
-  ; on_remote_stream : (mediaStream Js.t -> unit) option
+  ; on_local_stream : (mediaStream Js.t -> t -> unit) option
+  ; on_remote_stream : (mediaStream Js.t -> t -> unit) option
   ; on_message : 'a. (?jsep:_RTCSessionDescriptionInit Js.t ->
                       'a Js.t ->
                       t ->
                       unit) option
-  ; on_consent_dialog : (bool -> unit) option
-  ; on_ice_state : (ice_connection_state -> unit) option
-  ; on_webrtc_state : (webrtc_state -> unit) option
-  ; on_media_state : (media_state -> unit) option
-  ; on_slow_link : (slow_link -> unit) option
-  ; on_data : 'a. ('a Js.t -> unit) option
-  ; on_data_open : (unit -> unit) option
-  ; on_data_close : (unit -> unit) option
-  ; on_data_error : (_RTCError Js.t -> unit) option
-  ; on_cleanup : (unit -> unit) option
-  ; on_detached : (unit -> unit) option
+  ; on_consent_dialog : (bool -> t -> unit) option
+  ; on_ice_state : (ice_connection_state -> t -> unit) option
+  ; on_webrtc_state : (webrtc_state -> t -> unit) option
+  ; on_media_state : (media_state -> t -> unit) option
+  ; on_slow_link : (slow_link -> t -> unit) option
+  ; on_data : 'a. ('a Js.t -> t -> unit) option
+  ; on_data_open : (t -> unit) option
+  ; on_data_close : (t -> unit) option
+  ; on_data_error : (_RTCError Js.t -> t -> unit) option
+  ; on_cleanup : (t -> unit) option
+  ; on_detached : (t -> unit) option
   ; rm_from_session : int -> unit
   }

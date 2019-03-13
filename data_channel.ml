@@ -6,21 +6,21 @@ open Utils
 let init (t : t) (dc : _RTCDataChannel Js.t) : unit =
   let on_message = fun (e : _RTCDataChannel messageEvent Js.t) ->
     Log.ign_info ~inspect:e##.data "Received message on data channel:";
-    Option.iter (fun f -> f e##.data) t.on_data;
+    Option.iter (fun f -> f e##.data t) t.on_data;
     Js._true in
   let on_state_change = fun _ ->
     let state = match t.webrtc.data_channel with
       | None -> "null"
       | Some dc -> Js.to_string dc##.readyState in
     begin match state with
-    | "open" -> Option.iter (fun f -> f ()) t.on_data_open
-    | "closed" -> Option.iter (fun f -> f ()) t.on_data_close
+    | "open" -> Option.iter (fun f -> f t) t.on_data_open
+    | "closed" -> Option.iter (fun f -> f t) t.on_data_close
     | _ -> ()
     end;
     Js._true in
   let on_error = fun (e : _RTCDataChannel _RTCErrorEvent Js.t) ->
     Log.ign_error ~inspect:e "Got error on data channel:";
-    Option.iter (fun f -> f @@ Js.Unsafe.coerce e) t.on_data_error;
+    Option.iter (fun f -> f (Js.Unsafe.coerce e) t) t.on_data_error;
     Js._true in
   dc##.onmessage := Dom.handler on_message;
   dc##.onopen := Dom.handler on_state_change;

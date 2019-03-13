@@ -176,6 +176,19 @@ end = struct
 
 end
 
+class type ['a] iterator =
+  object
+    method next : 'a next Js.t Js.meth
+  end
+  and ['a] next =
+    object
+    method _done : bool Js.t Js.prop
+    method value : 'a Js.optdef Js.prop
+    end
+
+let iterator_to_js_array (i : 'a iterator) : 'a Js.js_array Js.t =
+  Js.Unsafe.global##._Array##from i
+
 class type _RTCPeerConnection =
   object
 
@@ -531,7 +544,7 @@ class type _RTCPeerConnection =
 
       (* Methods *)
 
-      method entries : _RTCStats KV.t Js.js_array Js.t Js.meth
+      method entries : _RTCStats KV.t iterator Js.t Js.meth
 
       method forEach : (_RTCStats Js.t -> Js.js_string Js.t ->
                         _RTCStatsReport Js.t -> unit) Js.callback ->
@@ -541,9 +554,9 @@ class type _RTCPeerConnection =
 
       method has : Js.js_string Js.t -> bool Js.t Js.meth
 
-      method keys : Js.js_string Js.t Js.js_array Js.t Js.meth
+      method keys : Js.js_string Js.t iterator Js.t Js.meth
 
-      method values : _RTCStats Js.t Js.js_array Js.t Js.meth
+      method values : _RTCStats Js.t iterator Js.t Js.meth
 
     end
 
@@ -631,7 +644,6 @@ class type _RTCPeerConnection =
       (** Total number of RTP packets lost for this SSRC. *)
       method packetsLost : int Js.prop
 
-      (* XXX not present during tests *)
       (** Packet Jitter measured in seconds for this SSRC. *)
       method jitter : float Js.prop
 
@@ -652,6 +664,42 @@ class type _RTCPeerConnection =
       (** Total number of bytes received for this SSRC. *)
       method bytesReceived : int Js.prop
 
+    end
+
+  and _RTCSentRtpStreamStats =
+    object
+      inherit _RTCRtpStreamStats
+
+      (** Total number of RTP packets sent for this SSRC. *)
+      method packetsSent : int Js.prop
+
+      (** Total number of RTP packets for this SSRC that have been discarded
+          due to socket errors, i.e. a socket error occured when handing the
+          packets to the socket. This might happen due to various reasons,
+          including full buffer or no available memory. *)
+      method packetsDiscardedOnSend : int Js.prop
+
+      (** Total number of RTP FEC packets sent for this SSRC. This counter can
+          also be incremented when sending FEC packets in-band with media
+          packets (e.g., with Opus). *)
+      method fecPacketsSent : int Js.prop
+
+      (** Total number of bytes sent for this SSRC. *)
+      method bytesSent : int Js.prop
+
+      (** Total number of bytes for this SSRC that have been discarded due to
+          socket errors, i.e. a socket error occured when handing the packets
+          containing the bytes to the socket. This might happen due to various
+          reasons, including full buffer or no available memory. *)
+      method bytesDiscardedOnSend : int Js.prop
+    end
+
+  and _RTCOutboundRtpStreamStats =
+    object
+      inherit _RTCSentRtpStreamStats
+
+      (** The identifier of the stats object representing the current track. *)
+      method trackId : Js.js_string Js.t Js.prop
     end
 
   and _RTCOfferAnswerOptions =
@@ -1270,6 +1318,8 @@ class type _RTCPeerConnection =
       (** Sends data across the data channel to the remote peer. *)
       method send_blob : #File.blob Js.t -> unit Js.meth
       method send_string : Js.js_string Js.t -> unit Js.meth
+      method send_arrayBuffer : #Typed_array.arrayBuffer Js.t -> unit Js.meth
+      method send_arrayBufferView : #Typed_array.arrayBufferView Js.t -> unit Js.meth
 
     end
 
