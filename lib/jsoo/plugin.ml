@@ -9,17 +9,7 @@ include Plugin_types
 let munge_sdp_for_simulcasting (sdp : Js.js_string Js.t Js.optdef)
     : Js.js_string Js.t =
   (* FIXME implement *)
-  match Js.Optdef.to_option sdp with
-  | None -> Js.string ""
-  | Some (sdp : Js.js_string Js.t) ->
-     let lines = Js.str_array @@ sdp##split (Js.string "\r\n") in
-     let cb = fun (s : Js.js_string Js.t) _ _ ->
-       let regexp = new%js Js.regExp (Js.string "/m=(\w+) */") in
-       let mline = Js.Opt.to_option @@ s##_match regexp in
-       ignore mline;
-       () in
-     lines##forEach (Js.wrap_callback cb);
-     sdp
+  Js.Optdef.get sdp (fun () -> Js.string "")
 
 let find_transceivers (x : _RTCRtpTransceiver Js.t Js.js_array Js.t) =
   if x##.length <= 0 then None, None else
@@ -126,6 +116,34 @@ let is_simulcast_needed ?(simulcast = false) (source : Media.source) : bool =
     | `Media { video; _ } -> Media.is_track_send_enabled video in
   simulcast && video_send
 
+let need_remove_video : Media.source -> bool = function
+  | `Stream _ -> false
+  | `Media { video; _ } ->
+     match video.update with
+     | Some Remove -> true
+     | _ -> false
+
+let need_remove_audio : Media.source -> bool = function
+  | `Stream _ -> false
+  | `Media { audio; _ } ->
+     match audio.update with
+     | Some Remove -> true
+     | _ -> false
+
+let need_send_video : Media.source -> bool = function
+  | `Stream _ -> true
+  | `Media { video; _ } ->
+     match video.source with
+     | `Bool x -> x
+     | _ -> true
+
+let need_send_audio : Media.source -> bool = function
+  | `Stream _ -> true
+  | `Media { audio; _ } ->
+     match audio.source with
+     | `Bool x -> x
+     | _ -> true
+
 let create_offer_ ?(ice_restart = false) ?simulcast
       ~(audio_recv : bool)
       ~(video_recv : bool)
@@ -148,14 +166,14 @@ let create_offer_ ?(ice_restart = false) ?simulcast
     (* Handle audio (and related changes, if any) *)
     handle_transceiver ~kind:"audio"
       ~recv:audio_recv
-      ~send:true (* FIXME *)
-      ~remove:false (* FIXME *)
+      ~send:(need_send_audio source)
+      ~remove:(need_remove_audio source)
       audio_transceiver pc;
     (* Handle video (and related changes, if any) *)
     handle_transceiver ~kind:"video"
       ~recv:video_recv
-      ~send:true (* FIXME *)
-      ~remove:false (* FIXME *)
+      ~send:(need_send_video source)
+      ~remove:(need_remove_video source)
       video_transceiver pc)
   else (
     media_constraints##.offerToReceiveAudio := Js.bool audio_recv;
@@ -212,14 +230,14 @@ let create_answer_ ?simulcast
     (* Handle audio (and related changes, if any) *)
     handle_transceiver ~kind:"audio"
       ~recv:audio_recv
-      ~send:true (* FIXME *)
-      ~remove:false (* FIXME *)
+      ~send:(need_send_audio source)
+      ~remove:(need_remove_audio source)
       audio_transceiver pc;
     (* Handle video (and related changes, if any) *)
     handle_transceiver ~kind:"video"
       ~recv:video_recv
-      ~send:true (* FIXME *)
-      ~remove:false (* FIXME *)
+      ~send:(need_send_video source)
+      ~remove:(need_remove_video source)
       video_transceiver pc)
   else if check_browser ~browser:"firefox" ()
           || check_browser ~browser:"edge" ()

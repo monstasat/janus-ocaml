@@ -1,5 +1,4 @@
 open Js_of_ocaml
-open Adapter
 open Webrtc
 
 type upd = Add | Remove | Replace
@@ -86,13 +85,6 @@ let make ?audio ?video () : t =
   ; audio
   }
 
-let is_data_enabled (data : data) : bool =
-  match get_browser () with
-  | "edge" ->
-     Log.ign_warning "Edge doen't support data channels yet";
-     false
-  | _ -> match data with `Bool x -> x | `Init _ -> true
-
 let is_track_send_enabled (track : 'a track) : bool =
   match track.source with
   | `Bool x -> x
@@ -102,8 +94,3 @@ let is_track_send_required (track : 'a track) : bool =
   match track.source with
   | `Bool false -> false
   | _ -> track.fail_if_not_available
-
-let should_remove_track (track : 'a track) : bool =
-  match track.update with
-  | Some Remove -> true
-  | None | Some _ -> false

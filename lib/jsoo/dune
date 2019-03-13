@@ -1,0 +1,6 @@
+(library
+  (name janus_js)
+  (public_name janus-js)
+  (synopsis "Library for Janus WebRTC server manipulation from browser")
+  (libraries  js_of_ocaml js_of_ocaml-lwt js_of_ocaml-lwt.logger)
+  (preprocess (pps js_of_ocaml-ppx)))
