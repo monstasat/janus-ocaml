@@ -3,7 +3,8 @@ open Webrtc
 open Adapter
 open Utils
 open Plugin_types
-open Lwt_result.Infix
+
+let ( >>= ) = Lwt_result.bind
 
 let get_screen_media ?(use_audio = false)
       (constraints : mediaStreamConstraints Js.t)
@@ -222,33 +223,38 @@ let handle_media ~(keep_audio : bool) ~(keep_video : bool)
             Lwt.return_ok
             (Lwt.return_error % exn_to_string)))
       (Lwt.return_error % exn_to_string) in
-  thread
-  >|= (fun x -> Option.iter (fun f -> f false t) t.on_consent_dialog; x)
+  is_get_user_media_available_lwt ()
+  >>= fun () -> thread
+  >>= fun x ->
+  Option.iter (fun f -> f false t) t.on_consent_dialog;
+  Lwt.return_ok x
 
 let get_user_media ?jsep ~(simulcast : bool)
       ~(keep_audio : bool)
       ~(keep_video : bool)
       (media : Media.t) (t : t) =
+  is_get_user_media_available_lwt ()
+  >>= fun () ->
   Option.iter (fun f -> f true t) t.on_consent_dialog;
   match media.video.source with
   | (`Screen fr as src) | (`Window fr as src) ->
-     let fr = match fr with None -> 3 | Some x -> x in
-     let source = match src with
-       | `Screen _ -> "screen" | `Window _ -> "window" in
-     handle_screenshare ~keep_audio source fr media t
+    let fr = match fr with None -> 3 | Some x -> x in
+    let source = match src with
+      | `Screen _ -> "screen" | `Window _ -> "window" in
+    handle_screenshare ~keep_audio source fr media t
   | `Resolution _ -> handle_media ~keep_audio ~keep_video media t
   | `Constraints _ -> handle_media ~keep_audio ~keep_video media t
   | `Bool false ->
-     let media =
-       if simulcast && Option.is_none jsep
-       then (
-         let source = `Resolution `HD in
-         let video = { media.video with source } in
-         Media.{ media with video })
-       else media in
-     handle_media ~keep_audio ~keep_video media t
+    let media =
+      if simulcast && Option.is_none jsep
+      then (
+        let source = `Resolution `HD in
+        let video = { media.video with source } in
+        Media.{ media with video })
+      else media in
+    handle_media ~keep_audio ~keep_video media t
   | `Bool true ->
-     let source = `Resolution `SD in
-     let video = { media.video with source } in
-     let media = { media with video } in
-     handle_media ~keep_audio ~keep_video media t
+    let source = `Resolution `SD in
+    let video = { media.video with source } in
+    let media = { media with video } in
+    handle_media ~keep_audio ~keep_video media t

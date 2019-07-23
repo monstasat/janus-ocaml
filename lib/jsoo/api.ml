@@ -4,7 +4,7 @@ open Lwt.Infix
 open Utils
 open Webrtc
 
-type 'a frame = 'a Lwt_xmlHttpRequest.generic_http_frame
+type 'a frame = 'a XmlHttpRequest.generic_http_frame
 
 type error_ext =
   { response : string option
@@ -241,7 +241,7 @@ let http_call ?async ?timeout ?with_credentials
     | None -> None
     | Some x -> Some (`String (Msg.to_string x)) in
   let (frame : 'a Js.opt frame Lwt.t) =
-    Lwt_xmlHttpRequest.perform_raw
+    XmlHttpRequest.perform_raw
       ?with_credentials
       ?contents
       ~headers

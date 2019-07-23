@@ -58,7 +58,7 @@ let detect_tab_close (sessions : (int * Session.t) list ref)
     : Dom_events.listener =
   let (ios : bool) =
     Js.to_string @@ Dom_html.window##.navigator##.platform
-    |> fun x -> List.mem ~eq:String.equal x ["iPad"; "iPhone"; "iPod"] in
+    |> fun x -> List.exists (String.equal x) ["iPad"; "iPhone"; "iPod"] in
   let (event : string) = if ios then "pagehide" else "beforeunload" in
   let old_bf =
     Js.Unsafe.get Dom_html.window (Js.string @@ "on" ^ event)
@@ -161,15 +161,16 @@ let create_session
              t.sessions := List.set_assoc ~eq:(=) id s !(t.sessions);
              Lwt_result.return s)
       | Error e ->
-         (match remaining with
-          | Some [] ->
-             "Error connecting to any of the provided Janus servers: \
-              Is the server down?"
-             |> Lwt_result.fail
-          | Some (hd :: tl) ->
-             (* Let's try the next server *)
-             Lwt_js.sleep 200. >>= (aux ~remaining:(hd, tl))
-          | None -> Lwt_result.fail (Api.error_to_string e))) in
+        (match remaining with
+         | Some [] ->
+           "Error connecting to any of the provided Janus servers: \
+            Is the server down?"
+           |> Lwt_result.fail
+         | Some (hd :: tl) ->
+           (* Let's try the next server *)
+           Js_of_ocaml_lwt.Lwt_js.sleep 200.
+           >>= aux ~remaining:(hd, tl)
+         | None -> Lwt_result.fail (Api.error_to_string e))) in
   aux ?remaining:None ()
 
 let create ?(log_level = Lwt_log_js.Error) () : t =

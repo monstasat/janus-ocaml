@@ -5,17 +5,13 @@ let ( % ) a b c = a (b c)
 module List = struct
   include List
 
-  let rec mem ~(eq : 'a -> 'a -> bool) (x : 'a) = function
-    | [] -> false
-    | hd :: tl -> if eq hd x then true else mem ~eq x tl
-
   let set_assoc ~eq k v l =
     let rec aux ~eq k v = function
       | acc, [] -> (k, v) :: List.rev acc
       | acc, (a, b) :: tl ->
-         if eq a k
-         then List.rev_append acc ((k, v) :: tl)
-         else aux ~eq k v (((a, b) :: acc), tl) in
+        if eq a k
+        then List.rev_append acc ((k, v) :: tl)
+        else aux ~eq k v (((a, b) :: acc), tl) in
     aux ~eq k v ([], l)
 
   let cons_maybe (x : 'a option) (l : 'a list) : 'a list =
@@ -27,9 +23,9 @@ module List = struct
     let rec aux = function
       | [] -> None
       | hd :: tl ->
-         match f hd with
-         | None -> aux tl
-         | Some _ as res -> res in
+        match f hd with
+        | None -> aux tl
+        | Some _ as res -> res in
     aux l
 
 end
@@ -161,10 +157,15 @@ let is_webrtc_supported () : bool =
   let test_opt = Js.Opt.test in
   let coerce = Js.Unsafe.coerce in
   let wnd = Dom_html.window in
-  let nav = coerce wnd##.navigator in
   test_def (coerce wnd)##.RTCPeerConnection
   && test_opt (coerce wnd)##.RTCPeerConnection
-  && test_def (coerce nav)##.mediaDevices
+
+let is_get_user_media_available () : bool =
+  let test_def = Js.Optdef.test in
+  let test_opt = Js.Opt.test in
+  let coerce = Js.Unsafe.coerce in
+  let nav = coerce Dom_html.window##.navigator in
+  test_def (coerce nav)##.mediaDevices
   && test_opt (coerce nav)##.mediaDevices
   && test_def (coerce nav)##.mediaDevices##.getUserMedia
   && test_opt (coerce nav)##.mediaDevices##.getUserMedia
@@ -172,6 +173,12 @@ let is_webrtc_supported () : bool =
 let is_webrtc_supported_lwt () : (unit, string) Lwt_result.t =
   if is_webrtc_supported () then Lwt_result.return () else (
     let s = "WebRTC is not supported by this browser" in
+    Log.ign_error s;
+    Lwt_result.fail s)
+
+let is_get_user_media_available_lwt () : (unit, string) Lwt_result.t =
+  if is_get_user_media_available () then Lwt_result.return () else (
+    let s = "navigator.mediaDevices is unavailable" in
     Log.ign_error s;
     Lwt_result.fail s)
 
